@@ -6,7 +6,8 @@
     "version": "1.0.0",
     "exposed-modules": [
         "ZMachine.Memory",
-        "ZMachine.Memory.Header"
+        "ZMachine.Memory.Header",
+        "ZMachine.Instruction"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {

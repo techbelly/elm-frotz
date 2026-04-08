@@ -1,0 +1,9 @@
+{
+    "name": "elm-frotz",
+    "version": "1.0.0",
+    "description": "Z-Machine version 3 interpreter for interactive fiction",
+    "private": true,
+    "devDependencies": {
+        "elm-test": "^0.19.1-revision12"
+    }
+}

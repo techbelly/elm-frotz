@@ -2,6 +2,7 @@ module ZMachine.Text exposing
     ( decodeZString
     , decodeZStringWords
     , encodeToZChars
+    , packZCharsToWords
     , zsciiToChar
     , charToZscii
     )

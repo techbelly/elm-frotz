@@ -11,7 +11,9 @@
         "ZMachine.Text",
         "ZMachine.Stack",
         "ZMachine.State",
-        "ZMachine.Execute"
+        "ZMachine.Execute",
+        "ZMachine.Dictionary",
+        "ZMachine.Run"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {

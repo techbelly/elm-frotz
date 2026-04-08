@@ -8,7 +8,10 @@
         "ZMachine.Memory",
         "ZMachine.Memory.Header",
         "ZMachine.Instruction",
-        "ZMachine.Text"
+        "ZMachine.Text",
+        "ZMachine.Stack",
+        "ZMachine.State",
+        "ZMachine.Execute"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {

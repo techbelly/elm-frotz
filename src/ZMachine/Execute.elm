@@ -25,8 +25,10 @@ import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Memory.Header as Header
 import ZMachine.Stack as Stack
 import ZMachine.State as State
+import ZMachine.Types as Types
     exposing
-        ( StepResult(..)
+        ( InputRequest(..)
+        , StepResult(..)
         , ZMachine
         , ZMachineError(..)
         )
@@ -236,7 +238,7 @@ execute instr nextPC ops machine =
                 ( str, _ ) =
                     Text.decodeZString (getOp 0 ops) m.memory
             in
-            Continue (State.appendOutput (State.PrintText str) m)
+            Continue (State.appendOutput (Types.PrintText str) m)
 
         Op1 CallS1 ->
             executeCall instr [ getOp 0 ops ] [] m
@@ -265,7 +267,7 @@ execute instr nextPC ops machine =
                 ( str, _ ) =
                     Text.decodeZString addr m.memory
             in
-            Continue (State.appendOutput (State.PrintText str) m)
+            Continue (State.appendOutput (Types.PrintText str) m)
 
         Op1 Load ->
             let
@@ -297,7 +299,7 @@ execute instr nextPC ops machine =
                         str =
                             Text.decodeZStringWords words m.memory
                     in
-                    Continue (State.appendOutput (State.PrintText str) m)
+                    Continue (State.appendOutput (Types.PrintText str) m)
 
                 Nothing ->
                     Continue m
@@ -311,8 +313,8 @@ execute instr nextPC ops machine =
 
                         m2 =
                             m
-                                |> State.appendOutput (State.PrintText str)
-                                |> State.appendOutput State.NewLine
+                                |> State.appendOutput (Types.PrintText str)
+                                |> State.appendOutput Types.NewLine
                     in
                     executeReturn 1 m2
 
@@ -355,7 +357,7 @@ execute instr nextPC ops machine =
             Halted m
 
         Op0 NewLine ->
-            Continue (State.appendOutput State.NewLine m)
+            Continue (State.appendOutput Types.NewLine m)
 
         Op0 ShowStatus ->
             executeShowStatus m
@@ -413,14 +415,14 @@ execute instr nextPC ops machine =
                 ch =
                     Text.zsciiToChar (getOp 0 ops)
             in
-            Continue (State.appendOutput (State.PrintText (String.fromChar ch)) m)
+            Continue (State.appendOutput (Types.PrintText (String.fromChar ch)) m)
 
         OpVar PrintNum ->
             let
                 num =
                     toSigned (getOp 0 ops)
             in
-            Continue (State.appendOutput (State.PrintText (String.fromInt num)) m)
+            Continue (State.appendOutput (Types.PrintText (String.fromInt num)) m)
 
         OpVar Random ->
             executeRandom instr ops m
@@ -439,18 +441,18 @@ execute instr nextPC ops machine =
             Continue (State.writeVariable varRef val m2)
 
         OpVar SplitWindow ->
-            Continue (State.appendOutput (State.SplitWindow (getOp 0 ops)) m)
+            Continue (State.appendOutput (Types.SplitWindow (getOp 0 ops)) m)
 
         OpVar SetWindow ->
             let
                 win =
                     if getOp 0 ops == 0 then
-                        State.Lower
+                        Types.Lower
 
                     else
-                        State.Upper
+                        Types.Upper
             in
-            Continue (State.appendOutput (State.SetWindow win) m)
+            Continue (State.appendOutput (Types.SetWindow win) m)
 
         OpVar OutputStream ->
             -- Minimal: just track stream 2 (transcript) toggle
@@ -480,7 +482,7 @@ execute instr nextPC ops machine =
             Continue m
 
         OpVar SoundEffect ->
-            Continue (State.appendOutput (State.PlaySound (getOp 0 ops)) m)
+            Continue (State.appendOutput (Types.PlaySound (getOp 0 ops)) m)
 
         OpVar (Inst.UnknownVar n) ->
             Error (InvalidOpcode n) m
@@ -999,7 +1001,7 @@ executePrintObj ops machine =
                 in
                 str
     in
-    Continue (State.appendOutput (State.PrintText name) machine)
+    Continue (State.appendOutput (Types.PrintText name) machine)
 
 
 
@@ -1056,7 +1058,7 @@ executeShowStatus machine =
             , isTimeGame = isTimeGame
             }
     in
-    Continue (State.appendOutput (State.ShowStatusLine status) machine)
+    Continue (State.appendOutput (Types.ShowStatusLine status) machine)
 
 
 
@@ -1076,16 +1078,16 @@ executeSread ops machine =
             Memory.readByte textBufAddr machine.memory
     in
     NeedInput
-        (State.LineInput
+        (LineInput
             { maxLength = maxLen
             , textBufferAddr = textBufAddr
             , parseBufferAddr = parseBufAddr
             }
         )
-        (State.appendOutput (State.ShowStatusLine (buildStatusLine machine)) machine)
+        (State.appendOutput (Types.ShowStatusLine (buildStatusLine machine)) machine)
 
 
-buildStatusLine : ZMachine -> State.StatusLine
+buildStatusLine : ZMachine -> Types.StatusLine
 buildStatusLine machine =
     let
         globalsAddr =

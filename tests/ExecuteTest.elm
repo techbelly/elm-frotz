@@ -9,6 +9,7 @@ import ZMachine.Execute as Execute
 import ZMachine.Instruction exposing (VariableRef(..))
 import ZMachine.Memory as Memory
 import ZMachine.State as State
+import ZMachine.Types
     exposing
         ( OutputEvent(..)
         , StepResult(..)

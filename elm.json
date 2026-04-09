@@ -5,15 +5,8 @@
     "license": "MIT",
     "version": "1.0.0",
     "exposed-modules": [
-        "ZMachine.Memory",
-        "ZMachine.Memory.Header",
-        "ZMachine.Instruction",
-        "ZMachine.Text",
-        "ZMachine.Stack",
-        "ZMachine.State",
-        "ZMachine.Execute",
-        "ZMachine.Dictionary",
-        "ZMachine.Run"
+        "ZMachine",
+        "ZMachine.Types"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {

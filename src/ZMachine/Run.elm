@@ -15,7 +15,7 @@ module ZMachine.Run exposing
 import ZMachine.Dictionary as Dictionary
 import ZMachine.Execute as Execute
 import ZMachine.Memory as Memory
-import ZMachine.State as State
+import ZMachine.Types
     exposing
         ( InputRequest(..)
         , StepResult(..)
@@ -71,7 +71,7 @@ provideInput input request machine =
 
 {-| Get all pending output events.
 -}
-getOutput : ZMachine -> List State.OutputEvent
+getOutput : ZMachine -> List ZMachine.Types.OutputEvent
 getOutput machine =
     machine.output
 

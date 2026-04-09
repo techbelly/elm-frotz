@@ -16,39 +16,33 @@ module ZMachine exposing
 
 {-| A pure Elm Z-Machine version 3 interpreter for interactive fiction.
 
-This is the main entry point for the library. All functions needed to
-load and run a `.z3` story file are here.
-
-For pattern matching on result types, also import the constructors:
+This module is the main entry point for the library. All functions needed
+to load and run a `.z3` story file are here. For pattern matching on
+result types, also import the constructors from
+[`ZMachine.Types`](ZMachine-Types):
 
     import ZMachine exposing (load, runSteps, provideInput, clearOutput, getOutput)
-    import ZMachine.State
-        exposing
-            ( StepResult(..)
-            , OutputEvent(..)
-            , InputRequest(..)
-            , ZMachineError(..)
-            )
+    import ZMachine.Types exposing (StepResult(..), OutputEvent(..), InputRequest(..))
 
 
-## Loading
+# Types
+
+@docs ZMachine, StepResult, OutputEvent, InputRequest, ZMachineError, StatusLine, Window
+
+
+# Loading
 
 @docs load
 
 
-## Running
+# Running
 
 @docs step, runSteps, provideInput
 
 
-## Output
+# Output
 
 @docs getOutput, clearOutput
-
-
-## Types
-
-@docs ZMachine, StepResult, OutputEvent, InputRequest, ZMachineError, StatusLine, Window
 
 -}
 
@@ -65,19 +59,17 @@ type alias ZMachine =
     ZMachine.Types.ZMachine
 
 
-{-| Result of executing one or more instructions.
-
-  - `Continue` — step budget exhausted; call `runSteps` again to keep going.
-  - `NeedInput` — the machine is waiting for a line of input from the player.
-  - `Halted` — the story called `quit`.
-  - `Error` — an unrecoverable error occurred.
-
+{-| Result of executing one or more instructions. See
+[`ZMachine.Types.StepResult`](ZMachine-Types#StepResult) for the
+constructors you will pattern match on.
 -}
 type alias StepResult =
     ZMachine.Types.StepResult
 
 
-{-| Structured output events for the host to render.
+{-| Structured output events for the host to render. See
+[`ZMachine.Types.OutputEvent`](ZMachine-Types#OutputEvent) for the full
+list of constructors.
 -}
 type alias OutputEvent =
     ZMachine.Types.OutputEvent
@@ -95,13 +87,13 @@ type alias ZMachineError =
     ZMachine.Types.ZMachineError
 
 
-{-| Status line data (location, score, turns).
+{-| Status line data including location name, score, and turns.
 -}
 type alias StatusLine =
     ZMachine.Types.StatusLine
 
 
-{-| Screen window identifier.
+{-| Screen window identifier (`Upper` or `Lower`).
 -}
 type alias Window =
     ZMachine.Types.Window
@@ -112,9 +104,11 @@ type alias Window =
     case ZMachine.load storyBytes of
         Ok machine ->
             -- ready to run
+            ...
 
         Err err ->
             -- invalid story file
+            ...
 
 -}
 load : Bytes -> Result String ZMachine
@@ -123,7 +117,16 @@ load bytes =
         |> Result.map State.init
 
 
-{-| Execute a single instruction.
+{-| Execute a single instruction. Returns a `StepResult` indicating
+whether the machine can continue, needs input, halted, or hit an error.
+
+    case ZMachine.step machine of
+        Continue nextMachine ->
+            ...
+
+        NeedInput request machineWithOutput ->
+            ...
+
 -}
 step : ZMachine -> StepResult
 step =
@@ -132,27 +135,61 @@ step =
 
 {-| Execute up to `n` instructions, stopping early if input is needed,
 the machine halts, or an error occurs.
+
+    case ZMachine.runSteps 10000 machine of
+        Continue nextMachine ->
+            -- budget exhausted, call runSteps again to keep going
+            ...
+
+        NeedInput request machineWithOutput ->
+            -- prompt the player for input
+            ...
+
 -}
 runSteps : Int -> ZMachine -> StepResult
 runSteps =
     Run.runSteps
 
 
-{-| Provide a line of input to a machine waiting for input.
+{-| Provide a line of input to a machine that returned `NeedInput`.
+Writes the text into the story's text buffer, tokenizes it, and
+resumes execution.
+
+    case ZMachine.runSteps 10000 machine of
+        NeedInput request machineWithOutput ->
+            ZMachine.provideInput "open mailbox" request machineWithOutput
+
+        _ ->
+            ...
+
 -}
 provideInput : String -> InputRequest -> ZMachine -> StepResult
 provideInput =
     Run.provideInput
 
 
-{-| Get all pending output events.
+{-| Get all pending output events. These accumulate as the machine
+executes instructions. Inspect them to render text, status lines, and
+screen commands.
+
+    ZMachine.getOutput machine
+    --> [ PrintText "West of House", NewLine, ... ]
+
 -}
 getOutput : ZMachine -> List OutputEvent
 getOutput =
     Run.getOutput
 
 
-{-| Clear pending output events.
+{-| Clear pending output events. Call this after you have processed the
+output so the same events are not rendered twice.
+
+    machine
+        |> ZMachine.getOutput
+        |> render
+    -- then
+    ZMachine.clearOutput machine
+
 -}
 clearOutput : ZMachine -> ZMachine
 clearOutput =

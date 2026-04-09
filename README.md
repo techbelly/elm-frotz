@@ -1,4 +1,4 @@
-# elm-frotz
+# elm-zmachine
 
 A pure Elm Z-Machine version 3 interpreter. Load and run `.z3` interactive fiction files (Zork I, Hitchhiker's Guide, etc.) from any Elm application.
 

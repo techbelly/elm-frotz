@@ -14,8 +14,10 @@ module ZMachine.Memory exposing
 
 {-| Byte-addressable memory for the Z-Machine.
 
-Dynamic memory (writable) is backed by an `Array Int` for O(log32 n) random access.
-Static and high memory (read-only) are kept as the original `Bytes` value.
+The full memory image is held in a single `Array Int` for O(log32 n)
+random access reads. Writes are guarded so only dynamic memory (below
+`staticBase`) is mutable; writes to static/high memory are silently
+ignored, matching the spec requirement that they're illegal.
 
 @docs Memory, fromBytes
 @docs readByte, readWord, readSignedWord
@@ -28,14 +30,14 @@ import Array exposing (Array)
 import Bitwise
 import Bytes exposing (Bytes)
 import Bytes.Decode as Decode
+import Library.BytesExtra as BytesExtra
 
 
 {-| The Z-Machine memory image. Opaque type — use the read/write functions.
 -}
 type Memory
     = Memory
-        { dynamic : Array Int
-        , static : Bytes
+        { bytes : Array Int
         , staticBase : Int
         , fileLength : Int
         }
@@ -75,19 +77,13 @@ fromBytes raw =
                     Err ("Static memory base " ++ String.fromInt staticBase ++ " exceeds file length " ++ String.fromInt len)
 
                 else
-                    case decodeDynamicRegion staticBase raw of
-                        Nothing ->
-                            Err "Failed to read dynamic memory region"
-
-                        Just dynamicArray ->
-                            Ok
-                                (Memory
-                                    { dynamic = dynamicArray
-                                    , static = raw
-                                    , staticBase = staticBase
-                                    , fileLength = len
-                                    }
-                                )
+                    Ok
+                        (Memory
+                            { bytes = BytesExtra.toIntArray raw
+                            , staticBase = staticBase
+                            , fileLength = len
+                            }
+                        )
 
 
 {-| Read a single byte (0-255) from the given address.
@@ -97,11 +93,8 @@ readByte addr (Memory mem) =
     if addr < 0 then
         0
 
-    else if addr < mem.staticBase then
-        Array.get addr mem.dynamic |> Maybe.withDefault 0
-
     else
-        decodeByteAt addr mem.static |> Maybe.withDefault 0
+        Array.get addr mem.bytes |> Maybe.withDefault 0
 
 
 {-| Read an unsigned 16-bit big-endian word from the given address.
@@ -146,7 +139,7 @@ writeByte addr value (Memory mem) =
         Memory mem
 
     else
-        Memory { mem | dynamic = Array.set addr (Bitwise.and value 0xFF) mem.dynamic }
+        Memory { mem | bytes = Array.set addr (Bitwise.and value 0xFF) mem.bytes }
 
 
 {-| Write an unsigned 16-bit big-endian word to the given address.
@@ -211,43 +204,9 @@ decodeHeader raw =
     Decode.decode decoder raw
 
 
-{-| Decode the dynamic memory region (bytes 0 to staticBase-1) into an Array.
--}
-decodeDynamicRegion : Int -> Bytes -> Maybe (Array Int)
-decodeDynamicRegion count raw =
-    let
-        decoder =
-            Decode.loop ( 0, Array.empty ) (dynamicByteStep count)
-    in
-    Decode.decode decoder raw
-
-
-dynamicByteStep : Int -> ( Int, Array Int ) -> Decode.Decoder (Decode.Step ( Int, Array Int ) (Array Int))
-dynamicByteStep count ( index, acc ) =
-    if index >= count then
-        Decode.succeed (Decode.Done acc)
-
-    else
-        Decode.unsignedInt8
-            |> Decode.map (\byte -> Decode.Loop ( index + 1, Array.push byte acc ))
-
-
 {-| Skip `n` bytes then run a decoder.
 -}
 skipThenDecode : Int -> Decode.Decoder a -> Decode.Decoder a
 skipThenDecode n decoder =
     Decode.bytes n
         |> Decode.andThen (\_ -> decoder)
-
-
-{-| Decode a single byte at a specific offset in a Bytes value.
--}
-decodeByteAt : Int -> Bytes -> Maybe Int
-decodeByteAt offset raw =
-    if offset < 0 || offset >= Bytes.width raw then
-        Nothing
-
-    else
-        Decode.decode
-            (skipThenDecode offset Decode.unsignedInt8)
-            raw

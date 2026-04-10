@@ -1,0 +1,66 @@
+look
+inventory
+open mailbox
+take leaflet
+read leaflet
+drop leaflet
+take leaflet
+put leaflet in mailbox
+close mailbox
+north
+south
+east
+west
+north
+east
+examine tree
+climb tree
+take egg
+examine egg
+down
+south
+south
+south
+north
+north
+west
+examine house
+south
+east
+south
+west
+open window
+west
+take bottle
+take sack
+open sack
+take garlic
+take lunch
+close sack
+take lantern
+examine lantern
+move rug
+up
+take painting
+examine painting
+down
+west
+open trophy case
+put painting in trophy case
+examine trophy case
+close trophy case
+east
+look
+inventory
+score
+brief
+look
+verbose
+look
+superbrief
+look
+wait
+again
+diagnose
+quit
+yes

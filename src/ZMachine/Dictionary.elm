@@ -11,7 +11,7 @@ and writing the results to the parse buffer.
 
 import Bitwise
 import ZMachine.Memory as Memory exposing (Memory)
-import ZMachine.Memory.Header as Header
+import ZMachine.Header as Header
 import ZMachine.Text as Text
 
 

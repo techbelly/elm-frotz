@@ -20,7 +20,7 @@ execution engine. Library consumers should use `ZMachine` and
 import Bitwise
 import ZMachine.Instruction exposing (VariableRef(..))
 import ZMachine.Memory as Memory exposing (Memory)
-import ZMachine.Memory.Header as Header
+import ZMachine.Header as Header
 import ZMachine.Stack
 import ZMachine.Types exposing (OutputEvent, ZMachine)
 

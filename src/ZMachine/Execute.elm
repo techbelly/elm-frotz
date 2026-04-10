@@ -23,7 +23,7 @@ import ZMachine.Instruction as Inst
         , VariableRef(..)
         )
 import ZMachine.Memory as Memory exposing (Memory)
-import ZMachine.Memory.Header as Header
+import ZMachine.Header as Header
 import ZMachine.Stack as Stack
 import ZMachine.State as State
 import ZMachine.Text as Text

@@ -1,4 +1,4 @@
-module ZMachine.Memory.Header exposing
+module ZMachine.Header exposing
     ( version, highMemoryBase, initialPC
     , dictionaryAddress, objectTableAddress, globalVariablesAddress
     , staticMemoryBase, abbreviationsTableAddress

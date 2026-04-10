@@ -17,7 +17,7 @@ ZSCII character codes, and Unicode strings.
 import Bitwise
 import Library.ListExtra exposing (findIndex, getAt, padTo)
 import ZMachine.Memory as Memory exposing (Memory)
-import ZMachine.Memory.Header as Header
+import ZMachine.Header as Header
 
 
 {-| Decode a Z-encoded string starting at a byte address in memory.

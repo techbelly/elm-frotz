@@ -4,12 +4,12 @@ import Bytes.Encode as Encode
 import Expect
 import Test exposing (Test, describe, test)
 import ZMachine.Memory as Memory exposing (Memory)
-import ZMachine.Memory.Header as Header
+import ZMachine.Header as Header
 
 
 suite : Test
 suite =
-    describe "ZMachine.Memory.Header"
+    describe "ZMachine.Header"
         [ fieldReadTests
         , flags1Tests
         , flags2Tests

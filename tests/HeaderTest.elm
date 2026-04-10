@@ -1,7 +1,5 @@
 module HeaderTest exposing (suite)
 
-import Bitwise
-import Bytes exposing (Bytes)
 import Bytes.Encode as Encode
 import Expect
 import Test exposing (Test, describe, test)
@@ -160,15 +158,15 @@ fieldReadTests =
         , test "staticMemoryBase" <|
             \_ ->
                 Header.staticMemoryBase realisticStory
-                    |> Expect.equal 0x0080
+                    |> Expect.equal 0x80
         , test "abbreviationsTableAddress" <|
             \_ ->
                 Header.abbreviationsTableAddress realisticStory
-                    |> Expect.equal 0x0040
+                    |> Expect.equal 0x40
         , test "releaseNumber" <|
             \_ ->
                 Header.releaseNumber realisticStory
-                    |> Expect.equal 0x0058
+                    |> Expect.equal 0x58
         , test "checksum" <|
             \_ ->
                 Header.checksum realisticStory

@@ -1,10 +1,7 @@
 module ZMachine.Text exposing
-    ( decodeZString
-    , decodeZStringWords
-    , encodeToZChars
+    ( decodeZString, decodeZStringWords, encodeToZChars
+    , zsciiToChar, charToZscii
     , packZCharsToWords
-    , zsciiToChar
-    , charToZscii
     )
 
 {-| Z-Machine text encoding and decoding.
@@ -13,7 +10,7 @@ Handles the conversion between Z-characters (5-bit values packed 3 per word),
 ZSCII character codes, and Unicode strings.
 
 @docs decodeZString, decodeZStringWords, encodeToZChars
-@docs zsciiToChar, charToZscii
+@docs zsciiToChar, charToZscii, packZCharsToWords
 
 -}
 
@@ -69,11 +66,8 @@ encodeToZChars str =
                 |> String.toList
                 |> List.concatMap charToZCharSequence
                 |> List.take 6
-
-        padded =
-            zchars ++ List.repeat (6 - List.length zchars) 5
     in
-    padded
+    zchars ++ List.repeat (6 - List.length zchars) 5
 
 
 {-| Pack Z-characters into 2-byte words for dictionary comparison.
@@ -139,18 +133,19 @@ Returns Nothing for characters not representable in ZSCII.
 -}
 charToZscii : Char -> Maybe Int
 charToZscii ch =
-    let
-        code =
-            Char.toCode ch
-    in
     if ch == '\n' then
         Just 13
 
-    else if code >= 32 && code <= 126 then
-        Just code
-
     else
-        Nothing
+        let
+            code =
+                Char.toCode ch
+        in
+        if code >= 32 && code <= 126 then
+            Just code
+
+        else
+            Nothing
 
 
 
@@ -222,15 +217,6 @@ processZChar abbrTableAddr mem isAbbreviation zchar state =
     case state.pending of
         Abbreviation abbrBase ->
             let
-                abbrIndex =
-                    abbrBase + zchar
-
-                abbrWordAddr =
-                    abbrTableAddr + abbrIndex * 2
-
-                abbrStringAddr =
-                    Memory.readWord abbrWordAddr mem * 2
-
                 abbrChars =
                     if isAbbreviation then
                         -- Abbreviations cannot contain abbreviations
@@ -238,6 +224,15 @@ processZChar abbrTableAddr mem isAbbreviation zchar state =
 
                     else
                         let
+                            abbrIndex =
+                                abbrBase + zchar
+
+                            abbrWordAddr =
+                                abbrTableAddr + abbrIndex * 2
+
+                            abbrStringAddr =
+                                Memory.readWord abbrWordAddr mem * 2
+
                             ( abbrWords, _ ) =
                                 readZWords abbrStringAddr mem []
                         in

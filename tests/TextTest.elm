@@ -423,9 +423,6 @@ abbreviationTests =
             \_ ->
                 let
                     -- Abbreviation 3, index 0 → table entry (3-1)*32 + 0 = 64
-                    abbrStr =
-                        [ zword 25 10 8 True ]
-
                     -- "the" (t=25, h=13, e=10) wait: t=25? t is position 19 in a-z, so zchar = 6+19 = 25. h = 6+7 = 13. e = 6+4 = 10
                     -- Actually: a=6, b=7, c=8 → "cec"? No.
                     -- Let me just use simple chars: zchars 6,7,8 = "abc"

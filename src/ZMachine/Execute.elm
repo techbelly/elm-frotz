@@ -25,6 +25,7 @@ import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Memory.Header as Header
 import ZMachine.Stack as Stack
 import ZMachine.State as State
+import ZMachine.Text as Text
 import ZMachine.Types as Types
     exposing
         ( InputRequest(..)
@@ -32,7 +33,6 @@ import ZMachine.Types as Types
         , ZMachine
         , ZMachineError(..)
         )
-import ZMachine.Text as Text
 
 
 {-| Execute a single instruction at the current PC.
@@ -616,7 +616,7 @@ executeJe instr ops machine =
             List.drop 1 ops
 
         matches =
-            List.any (\b -> a == b) rest
+            List.member a rest
     in
     executeBranch instr matches machine
 
@@ -948,15 +948,15 @@ executePutProp ops machine =
         propNum =
             getOp 1 ops
 
-        value =
-            getOp 2 ops
-
         result =
             findProperty obj propNum machine.memory
     in
     case result of
         Just ( dataAddr, dataLen ) ->
             let
+                value =
+                    getOp 2 ops
+
                 mem =
                     if dataLen == 1 then
                         Memory.writeByte dataAddr value machine.memory
@@ -1452,9 +1452,9 @@ variableRefFromByte byte =
 
 
 {-| Read a variable whose number was supplied as an operand to an
-"indirect" opcode (inc, dec, inc_chk, dec_chk, load, store, pull).
+"indirect" opcode (inc, dec, inc\_chk, dec\_chk, load, store, pull).
 Per Z-machine Standard §6.3.4, when the variable number is 0 the
-stack is read *in place* (peek), not popped.
+stack is read _in place_ (peek), not popped.
 -}
 readIndirect : Int -> ZMachine -> ( Int, ZMachine )
 readIndirect byte machine =
@@ -1467,7 +1467,7 @@ readIndirect byte machine =
 
 {-| Write a variable whose number was supplied as an operand to an
 "indirect" opcode. Per Z-machine Standard §6.3.4, when the variable
-number is 0 the stack is written *in place* (poke), not pushed.
+number is 0 the stack is written _in place_ (poke), not pushed.
 -}
 writeIndirect : Int -> Int -> ZMachine -> ZMachine
 writeIndirect byte value machine =

@@ -1,12 +1,12 @@
 module ZMachine.State exposing
-    ( init
-    , readVariable
-    , writeVariable
-    , pushStack
-    , popStack
+    ( appendOutput
+    , init
     , peekStack
     , pokeStack
-    , appendOutput
+    , popStack
+    , pushStack
+    , readVariable
+    , writeVariable
     )
 
 {-| Internal Z-Machine state operations.
@@ -17,13 +17,12 @@ execution engine. Library consumers should use `ZMachine` and
 
 -}
 
-import Array
 import Bitwise
 import ZMachine.Instruction exposing (VariableRef(..))
 import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Memory.Header as Header
 import ZMachine.Stack
-import ZMachine.Types exposing (OutputEvent(..), ZMachine)
+import ZMachine.Types exposing (OutputEvent, ZMachine)
 
 
 {-| Initialize a Z-Machine from a loaded story file.

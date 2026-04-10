@@ -1,10 +1,4 @@
-module ZMachine.Stack exposing
-    ( CallFrame
-    , newFrame
-    , getLocal
-    , setLocal
-    , localCount
-    )
+module ZMachine.Stack exposing (CallFrame, newFrame, getLocal, setLocal)
 
 {-| Call stack frame management for the Z-Machine.
 
@@ -12,7 +6,7 @@ Each routine call creates a `CallFrame` that captures the return address,
 where to store the return value, the routine's local variables, and the
 evaluation stack at the point of the call.
 
-@docs CallFrame, newFrame, getLocal, setLocal, localCount
+@docs CallFrame, newFrame, getLocal, setLocal
 
 -}
 
@@ -61,13 +55,6 @@ getLocal n frame =
 setLocal : Int -> Int -> CallFrame -> CallFrame
 setLocal n value frame =
     { frame | locals = Array.set (n - 1) (toUnsigned16 value) frame.locals }
-
-
-{-| Number of local variables in this frame.
--}
-localCount : CallFrame -> Int
-localCount frame =
-    Array.length frame.locals
 
 
 

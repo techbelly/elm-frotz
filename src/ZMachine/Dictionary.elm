@@ -1,8 +1,4 @@
-module ZMachine.Dictionary exposing
-    ( tokenize
-    , lookupWord
-    , TokenResult
-    )
+module ZMachine.Dictionary exposing (tokenize, lookupWord, TokenResult)
 
 {-| Z-Machine dictionary lookup and tokenization.
 
@@ -72,12 +68,8 @@ tokenize input textBufAddr parseBufAddr mem =
                         , textPosition = token.position + 1
                         }
                     )
-
-        -- Write parse buffer
-        memWithParse =
-            writeParseBuffer tokenResults parseBufAddr memWithText
     in
-    memWithParse
+    writeParseBuffer tokenResults parseBufAddr memWithText
 
 
 {-| Look up a word in the dictionary. Returns the dictionary entry address,
@@ -214,7 +206,10 @@ splitHelper chars separators pos currentWord tokens =
                         wordStart =
                             pos - List.length currentWord
                     in
-                    splitHelper rest separators (pos + 1) []
+                    splitHelper rest
+                        separators
+                        (pos + 1)
+                        []
                         ({ text = word, position = wordStart, length = String.length word } :: tokens)
 
             else if List.member ch separators then

@@ -25,6 +25,7 @@ suite =
 {-| Build a memory image with a dictionary containing given words.
 
 Memory layout:
+
   - Header at 0x00 (version=3, static base=0x100)
   - Dictionary at 0x08 (header word)
   - Dictionary placed at 0x40
@@ -33,6 +34,7 @@ Memory layout:
   - Object table at 0x0A (header word) — minimal, not used here
 
 Dictionary format:
+
   - 1 byte: number of separators
   - n bytes: separator characters
   - 1 byte: entry length (7 = 4 bytes encoded text + 3 bytes data)
@@ -47,7 +49,7 @@ makeMemWithDict separators words =
             512
 
         staticBase =
-            0x100
+            0x0100
 
         dictAddr =
             0x40
@@ -114,8 +116,8 @@ makeMemWithDict separators words =
                     )
 
         dictBytes =
-            [ numSeps ]
-                ++ sepBytes
+            numSeps
+                :: sepBytes
                 ++ [ entryLength ]
                 ++ [ Bitwise.shiftRightZfBy 8 numEntries, Bitwise.and numEntries 0xFF ]
                 ++ List.concat entries

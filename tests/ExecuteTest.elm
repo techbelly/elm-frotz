@@ -58,7 +58,7 @@ makeZMAt pc instrBytes =
             512
 
         staticBase =
-            0x100
+            0x0100
 
         globalsAddr =
             0x80
@@ -884,7 +884,7 @@ pushFrame zm =
         frame =
             { returnPC = 0x50
             , returnStore = Just Stack
-            , locals = Array.fromList []
+            , locals = Array.empty
             , evalStack = []
             }
     in

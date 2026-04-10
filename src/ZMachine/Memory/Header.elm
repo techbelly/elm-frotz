@@ -1,28 +1,10 @@
 module ZMachine.Memory.Header exposing
-    ( version
-    , flags1
-    , highMemoryBase
-    , initialPC
-    , dictionaryAddress
-    , objectTableAddress
-    , globalVariablesAddress
-    , staticMemoryBase
-    , flags2
-    , abbreviationsTableAddress
-    , fileLength
-    , checksum
-    , releaseNumber
-    , serialNumber
-    , standardRevision
-    , Flag1(..)
-    , Flag2(..)
-    , testFlag1
-    , testFlag2
-    , setFlag2
-    , clearFlag2
-    , setInterpreterInfo
-    , setScreenSize
-    , setStandardRevision
+    ( version, highMemoryBase, initialPC
+    , dictionaryAddress, objectTableAddress, globalVariablesAddress
+    , staticMemoryBase, abbreviationsTableAddress
+    , fileLength, checksum, releaseNumber, serialNumber, standardRevision
+    , Flag1(..), Flag2(..), testFlag1, testFlag2, setFlag2, clearFlag2
+    , setInterpreterInfo, setScreenSize, setStandardRevision
     )
 
 {-| Accessors for the 64-byte Z-Machine header.
@@ -31,9 +13,9 @@ All reads go through `ZMachine.Memory.readByte`/`readWord` so they always
 reflect the current state of dynamic memory (the header lives in dynamic memory
 and some fields are writable).
 
-@docs version, flags1, highMemoryBase, initialPC
+@docs version, highMemoryBase, initialPC
 @docs dictionaryAddress, objectTableAddress, globalVariablesAddress
-@docs staticMemoryBase, flags2, abbreviationsTableAddress
+@docs staticMemoryBase, abbreviationsTableAddress
 @docs fileLength, checksum, releaseNumber, serialNumber, standardRevision
 @docs Flag1, Flag2, testFlag1, testFlag2, setFlag2, clearFlag2
 @docs setInterpreterInfo, setScreenSize, setStandardRevision

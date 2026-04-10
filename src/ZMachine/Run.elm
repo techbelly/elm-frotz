@@ -1,10 +1,4 @@
-module ZMachine.Run exposing
-    ( step
-    , runSteps
-    , provideInput
-    , getOutput
-    , clearOutput
-    )
+module ZMachine.Run exposing (step, runSteps, provideInput, getOutput, clearOutput)
 
 {-| High-level run loop for the Z-Machine.
 
@@ -14,7 +8,6 @@ module ZMachine.Run exposing
 
 import ZMachine.Dictionary as Dictionary
 import ZMachine.Execute as Execute
-import ZMachine.Memory as Memory
 import ZMachine.Types
     exposing
         ( InputRequest(..)

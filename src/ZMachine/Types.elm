@@ -1,5 +1,7 @@
 module ZMachine.Types exposing
     ( ZMachine
+    , Memory
+    , CallFrame
     , StepResult(..)
     , OutputEvent(..)
     , InputRequest(..)
@@ -17,7 +19,7 @@ Import this module to pattern match on result types:
 
 # Machine State
 
-@docs ZMachine
+@docs ZMachine, Memory, CallFrame
 
 
 # Step Results
@@ -31,8 +33,22 @@ Import this module to pattern match on result types:
 
 -}
 
-import ZMachine.Memory exposing (Memory)
-import ZMachine.Stack exposing (CallFrame)
+import ZMachine.Memory
+import ZMachine.Stack
+
+
+{-| Opaque Z-Machine memory image, re-exported so consumers can annotate
+[`ZMachine`](#ZMachine) fields without a second import.
+-}
+type alias Memory =
+    ZMachine.Memory.Memory
+
+
+{-| A single call stack frame, re-exported so consumers can annotate
+[`ZMachine`](#ZMachine) fields without a second import.
+-}
+type alias CallFrame =
+    ZMachine.Stack.CallFrame
 
 
 {-| The complete state of a running Z-Machine. You will receive this

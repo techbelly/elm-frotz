@@ -4,6 +4,8 @@ module ZMachine.State exposing
     , writeVariable
     , pushStack
     , popStack
+    , peekStack
+    , pokeStack
     , appendOutput
     )
 
@@ -127,6 +129,34 @@ popStack machine =
 
         [] ->
             ( 0, machine )
+
+
+{-| Read the top of the evaluation stack without popping it.
+Returns 0 on underflow. Used for indirect variable references to
+the stack pointer, per Z-machine Standard §6.3.4.
+-}
+peekStack : ZMachine -> Int
+peekStack machine =
+    case machine.stack of
+        top :: _ ->
+            top
+
+        [] ->
+            0
+
+
+{-| Replace the top of the evaluation stack in place. No-op on
+underflow. Used for indirect variable writes to the stack pointer,
+per Z-machine Standard §6.3.4.
+-}
+pokeStack : Int -> ZMachine -> ZMachine
+pokeStack value machine =
+    case machine.stack of
+        _ :: rest ->
+            { machine | stack = toUnsigned16 value :: rest }
+
+        [] ->
+            machine
 
 
 {-| Append an output event.

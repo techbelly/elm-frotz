@@ -139,11 +139,7 @@ execute instr nextPC ops machine =
             executeClearAttr ops m
 
         Op2 Store ->
-            let
-                varRef =
-                    variableRefFromByte (getOp 0 ops)
-            in
-            Continue (State.writeVariable varRef (getOp 1 ops) m)
+            Continue (writeIndirect (getOp 0 ops) (getOp 1 ops) m)
 
         Op2 InsertObj ->
             executeInsertObj ops m
@@ -215,23 +211,23 @@ execute instr nextPC ops machine =
 
         Op1 Inc ->
             let
-                varRef =
-                    variableRefFromByte (getOp 0 ops)
+                byte =
+                    getOp 0 ops
 
                 ( current, m2 ) =
-                    State.readVariable varRef m
+                    readIndirect byte m
             in
-            Continue (State.writeVariable varRef (toUnsigned (toSigned current + 1)) m2)
+            Continue (writeIndirect byte (toUnsigned (toSigned current + 1)) m2)
 
         Op1 Dec ->
             let
-                varRef =
-                    variableRefFromByte (getOp 0 ops)
+                byte =
+                    getOp 0 ops
 
                 ( current, m2 ) =
-                    State.readVariable varRef m
+                    readIndirect byte m
             in
-            Continue (State.writeVariable varRef (toUnsigned (toSigned current - 1)) m2)
+            Continue (writeIndirect byte (toUnsigned (toSigned current - 1)) m2)
 
         Op1 PrintAddr ->
             let
@@ -271,11 +267,8 @@ execute instr nextPC ops machine =
 
         Op1 Load ->
             let
-                varRef =
-                    variableRefFromByte (getOp 0 ops)
-
                 ( val, m2 ) =
-                    State.readVariable varRef m
+                    readIndirect (getOp 0 ops) m
             in
             storeResult instr val m2
 
@@ -432,13 +425,13 @@ execute instr nextPC ops machine =
 
         OpVar Pull ->
             let
-                varRef =
-                    variableRefFromByte (getOp 0 ops)
+                byte =
+                    getOp 0 ops
 
                 ( val, m2 ) =
                     State.popStack m
             in
-            Continue (State.writeVariable varRef val m2)
+            Continue (writeIndirect byte val m2)
 
         OpVar SplitWindow ->
             Continue (State.appendOutput (Types.SplitWindow (getOp 0 ops)) m)
@@ -635,20 +628,20 @@ executeJe instr ops machine =
 executeDecChk : Instruction -> List Int -> ZMachine -> StepResult
 executeDecChk instr ops machine =
     let
-        varRef =
-            variableRefFromByte (getOp 0 ops)
+        byte =
+            getOp 0 ops
 
         checkValue =
             toSigned (getOp 1 ops)
 
         ( current, m ) =
-            State.readVariable varRef machine
+            readIndirect byte machine
 
         newValue =
             toSigned current - 1
 
         m2 =
-            State.writeVariable varRef (toUnsigned newValue) m
+            writeIndirect byte (toUnsigned newValue) m
     in
     executeBranch instr (newValue < checkValue) m2
 
@@ -656,20 +649,20 @@ executeDecChk instr ops machine =
 executeIncChk : Instruction -> List Int -> ZMachine -> StepResult
 executeIncChk instr ops machine =
     let
-        varRef =
-            variableRefFromByte (getOp 0 ops)
+        byte =
+            getOp 0 ops
 
         checkValue =
             toSigned (getOp 1 ops)
 
         ( current, m ) =
-            State.readVariable varRef machine
+            readIndirect byte machine
 
         newValue =
             toSigned current + 1
 
         m2 =
-            State.writeVariable varRef (toUnsigned newValue) m
+            writeIndirect byte (toUnsigned newValue) m
     in
     executeBranch instr (newValue > checkValue) m2
 
@@ -1456,3 +1449,30 @@ variableRefFromByte byte =
 
     else
         Global byte
+
+
+{-| Read a variable whose number was supplied as an operand to an
+"indirect" opcode (inc, dec, inc_chk, dec_chk, load, store, pull).
+Per Z-machine Standard §6.3.4, when the variable number is 0 the
+stack is read *in place* (peek), not popped.
+-}
+readIndirect : Int -> ZMachine -> ( Int, ZMachine )
+readIndirect byte machine =
+    if byte == 0 then
+        ( State.peekStack machine, machine )
+
+    else
+        State.readVariable (variableRefFromByte byte) machine
+
+
+{-| Write a variable whose number was supplied as an operand to an
+"indirect" opcode. Per Z-machine Standard §6.3.4, when the variable
+number is 0 the stack is written *in place* (poke), not pushed.
+-}
+writeIndirect : Int -> Int -> ZMachine -> ZMachine
+writeIndirect byte value machine =
+    if byte == 0 then
+        State.pokeStack value machine
+
+    else
+        State.writeVariable (variableRefFromByte byte) value machine

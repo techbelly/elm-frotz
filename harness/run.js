@@ -5,7 +5,7 @@ const readline = require('readline');
 const { Elm } = require('./elm.js');
 
 // Read the story file
-const storyPath = process.argv[2] || 'Zork1.z3';
+const storyPath = process.argv[2] || 'testing/Zork1.z3';
 const storyBytes = fs.readFileSync(storyPath);
 
 // Create a DataView from the buffer for Elm's Bytes format

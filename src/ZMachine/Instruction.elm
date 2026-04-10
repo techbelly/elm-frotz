@@ -488,7 +488,7 @@ readOperandByType : Int -> Int -> Memory -> ( Operand, Int )
 readOperandByType opType pos mem =
     case opType of
         0 ->
-            ( LargeConstant (Memory.readWord pos mem), pos + 2 )
+            ( LargeConstant (Memory.readWord pos mem), pos + Memory.wordLength )
 
         1 ->
             ( SmallConstant (Memory.readByte pos mem), pos + 1 )
@@ -616,7 +616,7 @@ decodeBranch pos mem =
                     raw14
         in
         ( Just { condition = condition, target = branchTargetFromOffset offset }
-        , pos + 2
+        , pos + Memory.wordLength
         )
 
 
@@ -655,10 +655,10 @@ decodeZWords pos mem acc =
             Bitwise.and word 0x8000 /= 0
     in
     if isEnd then
-        ( Just newAcc, pos + 2 )
+        ( Just newAcc, pos + Memory.wordLength )
 
     else
-        decodeZWords (pos + 2) mem newAcc
+        decodeZWords (pos + Memory.wordLength) mem newAcc
 
 
 

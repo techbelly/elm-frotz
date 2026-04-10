@@ -10,6 +10,7 @@ module ZMachine.Memory exposing
     , size
     , dynamicSize
     , unpackAddress
+    , wordLength
     )
 
 {-| Byte-addressable memory for the Z-Machine.
@@ -22,7 +23,7 @@ ignored, matching the spec requirement that they're illegal.
 @docs Memory, fromBytes
 @docs readByte, readWord, readSignedWord
 @docs writeByte, writeWord
-@docs readSlice, size, dynamicSize, unpackAddress
+@docs readSlice, size, dynamicSize, unpackAddress, wordLength
 
 -}
 
@@ -180,11 +181,20 @@ dynamicSize (Memory mem) =
     mem.staticBase
 
 
-{-| Convert a packed address to a byte address (V3: multiply by 2).
+{-| Size of a Z-Machine word, in bytes. Words are 16-bit big-endian, so
+this is always `2`. Use this instead of a bare `2` anywhere the intent
+is "advance by one word" or "index the Nth word".
+-}
+wordLength : Int
+wordLength =
+    2
+
+
+{-| Convert a packed address to a byte address (V3: multiply by word length).
 -}
 unpackAddress : Int -> Int
 unpackAddress packed =
-    packed * 2
+    packed * wordLength
 
 
 

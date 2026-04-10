@@ -274,7 +274,7 @@ readEntryKey addr mem =
             Memory.readWord addr mem
 
         w2 =
-            Memory.readWord (addr + 2) mem
+            Memory.readWord (addr + Memory.wordLength) mem
     in
     Bitwise.or (Bitwise.shiftLeftBy 16 w1) w2
 

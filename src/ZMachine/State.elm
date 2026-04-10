@@ -74,7 +74,7 @@ readVariable ref machine =
                     Header.globalVariablesAddress machine.memory
 
                 addr =
-                    globalsAddr + (n - 0x10) * 2
+                    globalsAddr + (n - 0x10) * Memory.wordLength
             in
             ( Memory.readWord addr machine.memory, machine )
 
@@ -105,7 +105,7 @@ writeVariable ref value machine =
                     Header.globalVariablesAddress machine.memory
 
                 addr =
-                    globalsAddr + (n - 0x10) * 2
+                    globalsAddr + (n - 0x10) * Memory.wordLength
             in
             { machine | memory = Memory.writeWord addr val machine.memory }
 

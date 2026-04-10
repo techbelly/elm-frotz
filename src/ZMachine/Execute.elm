@@ -9,6 +9,7 @@ Decodes and executes a single instruction, returning the resulting state.
 -}
 
 import Bitwise
+import Library.ListExtra exposing (getAt)
 import ZMachine.Instruction as Inst
     exposing
         ( BranchTarget(..)
@@ -147,7 +148,7 @@ execute instr nextPC ops machine =
         Op2 Loadw ->
             let
                 addr =
-                    getOp 0 ops + 2 * getOp 1 ops
+                    getOp 0 ops + Memory.wordLength * getOp 1 ops
             in
             storeResult instr (Memory.readWord addr m.memory) m
 
@@ -380,7 +381,7 @@ execute instr nextPC ops machine =
         OpVar Storew ->
             let
                 addr =
-                    getOp 0 ops + 2 * getOp 1 ops
+                    getOp 0 ops + Memory.wordLength * getOp 1 ops
 
                 val =
                     getOp 2 ops
@@ -548,14 +549,14 @@ executeCall instr addrOps args machine =
                 List.range 1 numLocals
                     |> List.map
                         (\i ->
-                            Memory.readWord (routineAddr + 1 + (i - 1) * 2) machine.memory
+                            Memory.readWord (routineAddr + 1 + (i - 1) * Memory.wordLength) machine.memory
                         )
 
             -- Override with provided arguments
             localsWithArgs =
                 List.indexedMap
                     (\i default ->
-                        case listGet i args of
+                        case getAt i args of
                             Just arg ->
                                 arg
 
@@ -565,7 +566,7 @@ executeCall instr addrOps args machine =
                     initialValues
 
             firstInstrAddr =
-                routineAddr + 1 + numLocals * 2
+                routineAddr + 1 + numLocals * Memory.wordLength
 
             frame =
                 Stack.newFrame numLocals localsWithArgs machine.pc instr.store machine.stack
@@ -878,7 +879,7 @@ executeGetProp instr ops machine =
                     Header.objectTableAddress machine.memory
 
                 defaultVal =
-                    Memory.readWord (tableBase + (propNum - 1) * 2) machine.memory
+                    Memory.readWord (tableBase + (propNum - 1) * Memory.wordLength) machine.memory
             in
             storeResult instr defaultVal machine
 
@@ -920,7 +921,7 @@ executeGetNextProp instr ops machine =
             Memory.readByte propTableAddr machine.memory
 
         firstPropAddr =
-            propTableAddr + 1 + nameLen * 2
+            propTableAddr + 1 + nameLen * Memory.wordLength
     in
     if propNum == 0 then
         -- Return number of first property
@@ -1013,11 +1014,11 @@ executeShowStatus machine =
 
         -- Global 1 (var 0x11) = score or hours
         scoreOrHours =
-            toSigned (Memory.readWord (globalsAddr + 2) machine.memory)
+            toSigned (Memory.readWord (globalsAddr + Memory.wordLength) machine.memory)
 
         -- Global 2 (var 0x12) = turns or minutes
         turnsOrMinutes =
-            Memory.readWord (globalsAddr + 4) machine.memory
+            Memory.readWord (globalsAddr + 2 * Memory.wordLength) machine.memory
 
         isTimeGame =
             Header.testFlag1 Header.StatusLineType machine.memory
@@ -1108,8 +1109,8 @@ buildStatusLine machine =
                     Tuple.first (Text.decodeZString (propTableAddr + 1) machine.memory)
     in
     { locationName = locationName
-    , score = toSigned (Memory.readWord (globalsAddr + 2) machine.memory)
-    , turns = Memory.readWord (globalsAddr + 4) machine.memory
+    , score = toSigned (Memory.readWord (globalsAddr + Memory.wordLength) machine.memory)
+    , turns = Memory.readWord (globalsAddr + 2 * Memory.wordLength) machine.memory
     , isTimeGame = Header.testFlag1 Header.StatusLineType machine.memory
     }
 
@@ -1174,7 +1175,7 @@ objectAddress objNum mem =
             Header.objectTableAddress mem
 
         defaultsSize =
-            31 * 2
+            31 * Memory.wordLength
     in
     tableBase + defaultsSize + (objNum - 1) * 9
 
@@ -1321,7 +1322,7 @@ findProperty objNum propNum mem =
             Memory.readByte propTableAddr mem
 
         firstPropAddr =
-            propTableAddr + 1 + nameLen * 2
+            propTableAddr + 1 + nameLen * Memory.wordLength
     in
     findPropertyAt firstPropAddr propNum mem
 
@@ -1431,12 +1432,7 @@ truncMod a b =
 
 getOp : Int -> List Int -> Int
 getOp index ops =
-    listGet index ops |> Maybe.withDefault 0
-
-
-listGet : Int -> List a -> Maybe a
-listGet index list =
-    list |> List.drop index |> List.head
+    getAt index ops |> Maybe.withDefault 0
 
 
 variableRefFromByte : Int -> VariableRef

@@ -15,14 +15,13 @@ ZSCII character codes, and Unicode strings.
 -}
 
 import Bitwise
+import Library.ListExtra exposing (findIndex, getAt, padTo)
 import ZMachine.Memory as Memory exposing (Memory)
+import ZMachine.Memory.Header as Header
 
 
 {-| Decode a Z-encoded string starting at a byte address in memory.
 Returns the decoded string and the number of bytes consumed.
-
-The abbreviations table address is read from header word 0x18.
-
 -}
 decodeZString : Int -> Memory -> ( String, Int )
 decodeZString addr mem =
@@ -31,7 +30,7 @@ decodeZString addr mem =
             readZWords addr mem []
 
         abbrTableAddr =
-            Memory.readWord 0x18 mem
+            Header.abbreviationsTableAddress mem
 
         chars =
             decodeWords words abbrTableAddr mem False
@@ -46,7 +45,7 @@ decodeZStringWords : List Int -> Memory -> String
 decodeZStringWords words mem =
     let
         abbrTableAddr =
-            Memory.readWord 0x18 mem
+            Header.abbreviationsTableAddress mem
 
         chars =
             decodeWords words abbrTableAddr mem False
@@ -55,19 +54,16 @@ decodeZStringWords words mem =
 
 
 {-| Encode a string into Z-characters for dictionary lookup.
-Returns exactly 6 Z-characters (V3 dictionary format), padded with Z-char 5.
+Returns exactly 6 Z-characters (V3 dictionary format), padded with the
+dictionary pad character.
 -}
 encodeToZChars : String -> List Int
 encodeToZChars str =
-    let
-        zchars =
-            str
-                |> String.toLower
-                |> String.toList
-                |> List.concatMap charToZCharSequence
-                |> List.take 6
-    in
-    zchars ++ List.repeat (6 - List.length zchars) 5
+    str
+        |> String.toLower
+        |> String.toList
+        |> List.concatMap charToZCharSequence
+        |> padTo 6 dictionaryPadChar
 
 
 {-| Pack Z-characters into 2-byte words for dictionary comparison.
@@ -78,7 +74,7 @@ packZCharsToWords : List Int -> List Int
 packZCharsToWords zchars =
     let
         padded =
-            (zchars ++ List.repeat 6 5) |> List.take 6
+            padTo 6 dictionaryPadChar zchars
 
         word1 =
             packThreeZChars (List.take 3 padded) False
@@ -93,13 +89,13 @@ packThreeZChars : List Int -> Bool -> Int
 packThreeZChars chars isLast =
     let
         z1 =
-            listGet 0 chars |> Maybe.withDefault 5
+            getAt 0 chars |> Maybe.withDefault dictionaryPadChar
 
         z2 =
-            listGet 1 chars |> Maybe.withDefault 5
+            getAt 1 chars |> Maybe.withDefault dictionaryPadChar
 
         z3 =
-            listGet 2 chars |> Maybe.withDefault 5
+            getAt 2 chars |> Maybe.withDefault dictionaryPadChar
 
         topBit =
             if isLast then
@@ -109,8 +105,8 @@ packThreeZChars chars isLast =
                 0
     in
     topBit
-        |> Bitwise.or (Bitwise.shiftLeftBy 10 z1)
-        |> Bitwise.or (Bitwise.shiftLeftBy 5 z2)
+        |> Bitwise.or (Bitwise.shiftLeftBy (2 * zcharBits) z1)
+        |> Bitwise.or (Bitwise.shiftLeftBy zcharBits z2)
         |> Bitwise.or z3
 
 
@@ -149,6 +145,57 @@ charToZscii ch =
 
 
 
+-- INTERNAL: Z-character constants
+
+
+{-| Z-char 4 shifts the next Z-char into alphabet A1 (uppercase letters).
+-}
+a1Shift : Int
+a1Shift =
+    4
+
+
+{-| Z-char 5 shifts the next Z-char into alphabet A2 (digits and punctuation).
+-}
+a2Shift : Int
+a2Shift =
+    5
+
+
+{-| V3 dictionary entries are padded to exactly 6 Z-characters using Z-char 5.
+Same numeric value as `a2Shift`, but used in a dictionary-padding role.
+-}
+dictionaryPadChar : Int
+dictionaryPadChar =
+    5
+
+
+{-| In alphabet A2, Z-char 6 introduces a 10-bit ZSCII escape: the next
+two Z-chars supply the high and low 5 bits of a ZSCII code. Used for
+characters that don't appear in any of the three alphabets.
+-}
+zsciiEscape : Int
+zsciiEscape =
+    6
+
+
+{-| Number of bits used to represent a single Z-character. Three Z-chars
+are packed into a 16-bit word (5 + 5 + 5 = 15 bits, leaving the top bit
+as an end-of-string marker).
+-}
+zcharBits : Int
+zcharBits =
+    5
+
+
+{-| Bit mask matching one Z-character (the low `zcharBits` bits of an int).
+-}
+zcharMask : Int
+zcharMask =
+    0x1F
+
+
+
 -- INTERNAL: Reading Z-words from memory
 
 
@@ -165,10 +212,10 @@ readZWords addr mem acc =
             Bitwise.and word 0x8000 /= 0
     in
     if isEnd then
-        ( newAcc, List.length newAcc * 2 )
+        ( newAcc, List.length newAcc * Memory.wordLength )
 
     else
-        readZWords (addr + 2) mem newAcc
+        readZWords (addr + Memory.wordLength) mem newAcc
 
 
 
@@ -206,9 +253,9 @@ decodeWords words abbrTableAddr mem isAbbreviation =
 
 extractZChars : Int -> List Int
 extractZChars word =
-    [ Bitwise.and (Bitwise.shiftRightZfBy 10 word) 0x1F
-    , Bitwise.and (Bitwise.shiftRightZfBy 5 word) 0x1F
-    , Bitwise.and word 0x1F
+    [ Bitwise.and (Bitwise.shiftRightZfBy (2 * zcharBits) word) zcharMask
+    , Bitwise.and (Bitwise.shiftRightZfBy zcharBits word) zcharMask
+    , Bitwise.and word zcharMask
     ]
 
 
@@ -228,10 +275,10 @@ processZChar abbrTableAddr mem isAbbreviation zchar state =
                                 abbrBase + zchar
 
                             abbrWordAddr =
-                                abbrTableAddr + abbrIndex * 2
+                                abbrTableAddr + abbrIndex * Memory.wordLength
 
                             abbrStringAddr =
-                                Memory.readWord abbrWordAddr mem * 2
+                                Memory.unpackAddress (Memory.readWord abbrWordAddr mem)
 
                             ( abbrWords, _ ) =
                                 readZWords abbrStringAddr mem []
@@ -250,7 +297,7 @@ processZChar abbrTableAddr mem isAbbreviation zchar state =
         ZsciiLow highBits ->
             let
                 zsciiCode =
-                    Bitwise.or (Bitwise.shiftLeftBy 5 highBits) zchar
+                    Bitwise.or (Bitwise.shiftLeftBy zcharBits highBits) zchar
 
                 ch =
                     zsciiToChar zsciiCode
@@ -268,13 +315,13 @@ processZChar abbrTableAddr mem isAbbreviation zchar state =
             else if zchar >= 1 && zchar <= 3 then
                 { state | pending = Abbreviation ((zchar - 1) * 32) }
 
-            else if zchar == 4 then
+            else if zchar == a1Shift then
                 { state | alphabet = 1 }
 
-            else if zchar == 5 then
+            else if zchar == a2Shift then
                 { state | alphabet = 2 }
 
-            else if state.alphabet == 2 && zchar == 6 then
+            else if state.alphabet == 2 && zchar == zsciiEscape then
                 { state | pending = ZsciiHigh, alphabet = 0 }
 
             else if state.alphabet == 2 && zchar == 7 then
@@ -302,13 +349,13 @@ alphabetChar alphabet zchar =
     in
     case alphabet of
         0 ->
-            listGet index a0 |> Maybe.withDefault '?'
+            getAt index a0 |> Maybe.withDefault '?'
 
         1 ->
-            listGet index a1 |> Maybe.withDefault '?'
+            getAt index a1 |> Maybe.withDefault '?'
 
         2 ->
-            listGet index a2 |> Maybe.withDefault '?'
+            getAt index a2 |> Maybe.withDefault '?'
 
         _ ->
             '?'
@@ -345,21 +392,21 @@ charToZCharSequence ch =
         Nothing ->
             case findInAlphabet 1 ch of
                 Just zchar ->
-                    [ 4, zchar ]
+                    [ a1Shift, zchar ]
 
                 Nothing ->
                     case findInAlphabet 2 ch of
                         Just zchar ->
-                            [ 5, zchar ]
+                            [ a2Shift, zchar ]
 
                         Nothing ->
                             -- Fall back to 10-bit ZSCII escape
                             case charToZscii ch of
                                 Just code ->
-                                    [ 5
-                                    , 6
-                                    , Bitwise.and (Bitwise.shiftRightZfBy 5 code) 0x1F
-                                    , Bitwise.and code 0x1F
+                                    [ a2Shift
+                                    , zsciiEscape
+                                    , Bitwise.and (Bitwise.shiftRightZfBy zcharBits code) zcharMask
+                                    , Bitwise.and code zcharMask
                                     ]
 
                                 Nothing ->
@@ -384,29 +431,3 @@ findInAlphabet alphabet ch =
         |> Maybe.map (\i -> i + 6)
 
 
-findIndex : Char -> List Char -> Maybe Int
-findIndex target list =
-    findIndexHelper target list 0
-
-
-findIndexHelper : Char -> List Char -> Int -> Maybe Int
-findIndexHelper target list idx =
-    case list of
-        [] ->
-            Nothing
-
-        x :: rest ->
-            if x == target then
-                Just idx
-
-            else
-                findIndexHelper target rest (idx + 1)
-
-
-
--- INTERNAL: Utility
-
-
-listGet : Int -> List a -> Maybe a
-listGet index list =
-    list |> List.drop index |> List.head

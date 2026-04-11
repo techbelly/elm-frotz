@@ -190,6 +190,3 @@ errorToString err =
 
         InvalidVariable n ->
             "Invalid variable: " ++ String.fromInt n
-
-        IllegalMemoryAccess n ->
-            "Illegal memory access: " ++ String.fromInt n

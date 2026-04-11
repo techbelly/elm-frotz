@@ -61,7 +61,7 @@ type alias ZMachine =
     , stack : List Int
     , callStack : List CallFrame
     , output : List OutputEvent
-    , outputStreams : { stream1 : Bool, stream2 : Bool, stream3 : List Int }
+    , outputStreams : { stream1 : Bool, stream2 : Bool }
     , randomState : { seed : Int, count : Int }
     }
 
@@ -92,7 +92,6 @@ type StepResult
   - `StackUnderflow` — a pop from an empty evaluation stack.
   - `InvalidOpcode` — an unrecognised opcode number.
   - `InvalidVariable` — a variable reference outside 0–255.
-  - `IllegalMemoryAccess` — a read or write beyond story file bounds.
 
 -}
 type ZMachineError
@@ -100,7 +99,6 @@ type ZMachineError
     | StackUnderflow
     | InvalidOpcode Int
     | InvalidVariable Int
-    | IllegalMemoryAccess Int
 
 
 {-| What kind of input the machine needs. Currently only line input is

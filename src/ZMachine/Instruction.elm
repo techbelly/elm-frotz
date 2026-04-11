@@ -30,6 +30,7 @@ type / opcode number extraction for each.
 
 import Bitwise
 import ZMachine.Memory as Memory exposing (Memory)
+import ZMachine.Text as Text
 
 
 {-| A fully decoded Z-Machine instruction.
@@ -640,26 +641,11 @@ We store the raw words here; actual decoding to a String happens in ZMachine.Tex
 -}
 decodeInlineText : Int -> Memory -> ( Maybe (List Int), Int )
 decodeInlineText pos mem =
-    decodeZWords pos mem []
-
-
-decodeZWords : Int -> Memory -> List Int -> ( Maybe (List Int), Int )
-decodeZWords pos mem acc =
     let
-        word =
-            Memory.readWord pos mem
-
-        newAcc =
-            word :: acc
-
-        isEnd =
-            Bitwise.and word 0x8000 /= 0
+        ( words, endPos ) =
+            Text.readZWords pos mem []
     in
-    if isEnd then
-        ( Just (List.reverse newAcc), pos + Memory.wordLength )
-
-    else
-        decodeZWords (pos + Memory.wordLength) mem newAcc
+    ( Just words, endPos )
 
 
 

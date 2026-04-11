@@ -2,6 +2,7 @@ module ZMachine.Text exposing
     ( decodeZString, decodeZStringWords, encodeToZChars
     , zsciiToChar, charToZscii
     , packZCharsToWords
+    , readZWords
     )
 
 {-| Z-Machine text encoding and decoding.
@@ -11,6 +12,7 @@ ZSCII character codes, and Unicode strings.
 
 @docs decodeZString, decodeZStringWords, encodeToZChars
 @docs zsciiToChar, charToZscii, packZCharsToWords
+@docs readZWords
 
 -}
 
@@ -26,7 +28,7 @@ Returns the decoded string and the number of bytes consumed.
 decodeZString : Int -> Memory -> ( String, Int )
 decodeZString addr mem =
     let
-        ( words, bytesConsumed ) =
+        ( words, endAddr ) =
             readZWords addr mem []
 
         abbrTableAddr =
@@ -35,7 +37,7 @@ decodeZString addr mem =
         chars =
             decodeWords words abbrTableAddr mem False
     in
-    ( String.fromList chars, bytesConsumed )
+    ( String.fromList chars, endAddr - addr )
 
 
 {-| Decode a Z-encoded string from a list of pre-read 16-bit words.
@@ -196,9 +198,15 @@ zcharMask =
 
 
 
--- INTERNAL: Reading Z-words from memory
+-- Reading Z-words from memory
 
 
+{-| Walk Z-encoded string words starting at `addr`, stopping after the
+first word whose top bit is set. Returns the collected words (in reading
+order) and the byte address immediately after the terminator word. The
+`acc` parameter should normally be `[]`; it exists to support tail-call
+accumulation.
+-}
 readZWords : Int -> Memory -> List Int -> ( List Int, Int )
 readZWords addr mem acc =
     let
@@ -208,14 +216,17 @@ readZWords addr mem acc =
         newAcc =
             word :: acc
 
+        nextAddr =
+            addr + Memory.wordLength
+
         isEnd =
             Bitwise.and word 0x8000 /= 0
     in
     if isEnd then
-        ( List.reverse newAcc, List.length newAcc * Memory.wordLength )
+        ( List.reverse newAcc, nextAddr )
 
     else
-        readZWords (addr + Memory.wordLength) mem newAcc
+        readZWords nextAddr mem newAcc
 
 
 

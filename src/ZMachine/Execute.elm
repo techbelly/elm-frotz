@@ -554,18 +554,9 @@ executeCall instr addrOps args machine =
                             Memory.readWord (routineAddr + 1 + (i - 1) * Memory.wordLength) machine.memory
                         )
 
-            -- Override with provided arguments
+            -- Override leading defaults with provided arguments
             localsWithArgs =
-                List.indexedMap
-                    (\i default ->
-                        case getAt i args of
-                            Just arg ->
-                                arg
-
-                            Nothing ->
-                                default
-                    )
-                    initialValues
+                mergeArgsWithDefaults args initialValues
 
             firstInstrAddr =
                 routineAddr + 1 + numLocals * Memory.wordLength
@@ -669,7 +660,7 @@ executeStep delta ops machine =
 
 
 
--- OBJECT OPERATIONS (stubs for now — full implementation in Phase 3)
+-- OBJECT OPERATIONS
 
 
 executeJin : Instruction -> List Int -> ZMachine -> StepResult
@@ -948,6 +939,25 @@ executeRandom instr ops machine =
 operandAt : Int -> List Int -> Int
 operandAt index ops =
     getAt index ops |> Maybe.withDefault 0
+
+
+{-| Walk both lists once to overwrite the leading `defaults` with `args`.
+`List.length defaults` caps the result so routines never receive more
+locals than they declared. This is a linear replacement for the earlier
+`List.indexedMap`/`getAt` pairing, which was O(n²) in the number of
+locals — measurable on routines with many locals called in a hot loop.
+-}
+mergeArgsWithDefaults : List Int -> List Int -> List Int
+mergeArgsWithDefaults args defaults =
+    case ( args, defaults ) of
+        ( _, [] ) ->
+            []
+
+        ( [], _ ) ->
+            defaults
+
+        ( arg :: restArgs, _ :: restDefaults ) ->
+            arg :: mergeArgsWithDefaults restArgs restDefaults
 
 
 {-| Read a variable whose number was supplied as an operand to an

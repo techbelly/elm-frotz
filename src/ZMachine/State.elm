@@ -46,7 +46,7 @@ init mem =
     , stack = []
     , callStack = []
     , output = []
-    , outputStreams = { stream1 = True, stream2 = False, stream3 = [] }
+    , outputStreams = { stream1 = True, stream2 = False }
     , randomState = { seed = 12345, count = 0 }
     }
 
@@ -69,14 +69,7 @@ readVariable ref machine =
                     ( 0, machine )
 
         Global n ->
-            let
-                globalsAddr =
-                    Header.globalVariablesAddress machine.memory
-
-                addr =
-                    globalsAddr + (n - 0x10) * Memory.wordLength
-            in
-            ( Memory.readWord addr machine.memory, machine )
+            ( Memory.readWord (globalAddress n machine.memory) machine.memory, machine )
 
 
 {-| Write a value to a variable. Variable 0 = push stack, 1-15 = locals, 16-255 = globals.
@@ -101,14 +94,24 @@ writeVariable ref value machine =
                     machine
 
         Global n ->
-            let
-                globalsAddr =
-                    Header.globalVariablesAddress machine.memory
+            { machine | memory = Memory.writeWord (globalAddress n machine.memory) value machine.memory }
 
-                addr =
-                    globalsAddr + (n - 0x10) * Memory.wordLength
-            in
-            { machine | memory = Memory.writeWord addr value machine.memory }
+
+{-| Byte address of global variable `n`. Globals are numbered from `0x10`
+onward in the Z-machine variable space, so the stored word index is
+`n - 0x10`.
+-}
+globalAddress : Int -> Memory -> Int
+globalAddress n mem =
+    Header.globalVariablesAddress mem + (n - firstGlobalVariable) * Memory.wordLength
+
+
+{-| The variable number at which the global region begins (globals are
+numbered 0x10..0xFF in the Z-machine variable space).
+-}
+firstGlobalVariable : Int
+firstGlobalVariable =
+    0x10
 
 
 {-| Push a value onto the evaluation stack.

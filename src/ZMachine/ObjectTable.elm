@@ -352,24 +352,21 @@ findPropertyAt addr propNum mem =
 
     else
         let
-            num =
-                Bitwise.and sizeByte propertyNumberMask
-
-            dataLen =
-                Bitwise.shiftRightZfBy 5 sizeByte + 1
+            decoded =
+                decodeSizeByte sizeByte
 
             dataAddr =
                 addr + 1
         in
-        if num == propNum then
-            Just ( dataAddr, dataLen )
+        if decoded.num == propNum then
+            Just ( dataAddr, decoded.dataLen )
 
-        else if num < propNum then
+        else if decoded.num < propNum then
             -- Properties are stored in descending order; we've passed it.
             Nothing
 
         else
-            findPropertyAt (dataAddr + dataLen) propNum mem
+            findPropertyAt (dataAddr + decoded.dataLen) propNum mem
 
 
 {-| Implements the `get_next_prop` opcode. If `propNum` is 0, returns the
@@ -405,20 +402,27 @@ walkToNextNumber addr targetPropNum mem =
 
     else
         let
-            num =
-                Bitwise.and sizeByte propertyNumberMask
-
-            dataLen =
-                Bitwise.shiftRightZfBy 5 sizeByte + 1
+            decoded =
+                decodeSizeByte sizeByte
 
             nextAddr =
-                addr + 1 + dataLen
+                addr + 1 + decoded.dataLen
         in
-        if num == targetPropNum then
+        if decoded.num == targetPropNum then
             propertyNumberAt nextAddr mem
 
         else
             walkToNextNumber nextAddr targetPropNum mem
+
+
+{-| Decode a property size byte into its `num` (property number) and
+`dataLen` (length of the property's data in bytes) fields.
+-}
+decodeSizeByte : Int -> { num : Int, dataLen : Int }
+decodeSizeByte sizeByte =
+    { num = Bitwise.and sizeByte propertyNumberMask
+    , dataLen = Bitwise.shiftRightZfBy 5 sizeByte + 1
+    }
 
 
 {-| Default value to use for property `propNum` when the object doesn't
@@ -440,4 +444,4 @@ propertyLength dataAddr mem =
         0
 
     else
-        Bitwise.shiftRightZfBy 5 (Memory.readByte (dataAddr - 1) mem) + 1
+        .dataLen (decodeSizeByte (Memory.readByte (dataAddr - 1) mem))

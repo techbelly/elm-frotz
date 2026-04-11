@@ -170,17 +170,16 @@ restore (Snapshot snap) originalMemory =
         Err (WrongStory { expected = currentMeta, found = snap.metaData })
 
     else
-        case Memory.replaceDynamic snap.dynamicMem originalMemory of
-            Err reason ->
-                Err (SnapshotCorrupt reason)
-
-            Ok rebuiltMemory ->
-                Ok
+        Memory.replaceDynamic snap.dynamicMem originalMemory
+            |> Result.mapError SnapshotCorrupt
+            |> Result.map
+                (\rebuiltMemory ->
                     { memory = rebuiltMemory
                     , pc = snap.pcAddr
                     , stack = snap.evalStack
                     , callStack = snap.callFrames
                     }
+                )
 
 
 
@@ -323,9 +322,9 @@ encode (Snapshot snap) =
         , encodeSerial snap.metaData.serial
         , BE.unsignedInt16 Bytes.BE snap.metaData.checksum
         , BE.unsignedInt32 Bytes.BE snap.pcAddr
-        , encodeByteArray snap.dynamicMem
-        , encodeWordList snap.evalStack
-        , encodeFrames snap.callFrames
+        , encodeLengthPrefixed BE.unsignedInt8 (Array.toList snap.dynamicMem)
+        , encodeLengthPrefixed encodeWord snap.evalStack
+        , encodeLengthPrefixed encodeFrame snap.callFrames
         ]
         |> BE.encode
 
@@ -335,15 +334,8 @@ Returns `Err` with a reason string on any format error.
 -}
 decode : Bytes -> Result String Snapshot
 decode bytes =
-    case BD.decode nativeDecoder bytes of
-        Just (Ok snap) ->
-            Ok snap
-
-        Just (Err reason) ->
-            Err reason
-
-        Nothing ->
-            Err "Snapshot bytes truncated or malformed"
+    BD.decode nativeDecoder bytes
+        |> Maybe.withDefault (Err "Snapshot bytes truncated or malformed")
 
 
 
@@ -372,35 +364,30 @@ encodeSerial s =
     BE.sequence (List.map BE.unsignedInt8 codes)
 
 
-encodeByteArray : Array Int -> BE.Encoder
-encodeByteArray arr =
+{-| Encode a u32 big-endian length prefix followed by `items`, each
+encoded via `itemEncoder`. Inverse of [`lengthPrefixed`](#lengthPrefixed).
+-}
+encodeLengthPrefixed : (a -> BE.Encoder) -> List a -> BE.Encoder
+encodeLengthPrefixed itemEncoder items =
     BE.sequence
-        (BE.unsignedInt32 Bytes.BE (Array.length arr)
-            :: (Array.toList arr |> List.map BE.unsignedInt8)
+        (BE.unsignedInt32 Bytes.BE (List.length items)
+            :: List.map itemEncoder items
         )
 
 
-encodeWordList : List Int -> BE.Encoder
-encodeWordList words =
-    BE.sequence
-        (BE.unsignedInt32 Bytes.BE (List.length words)
-            :: List.map (\w -> BE.unsignedInt16 Bytes.BE (Bitwise.and w 0xFFFF)) words
-        )
+{-| Encode a single 16-bit word, masking to the low 16 bits so negative
+Ints (e.g. signed stack values) round-trip through an unsigned decoder.
+-}
+encodeWord : Int -> BE.Encoder
+encodeWord w =
+    BE.unsignedInt16 Bytes.BE (Bitwise.and w 0xFFFF)
 
 
-encodeFrames : List CallFrame -> BE.Encoder
-encodeFrames frames =
-    BE.sequence
-        (BE.unsignedInt32 Bytes.BE (List.length frames)
-            :: List.map encodeFrame frames
-        )
-
-
-encodeFrame : CallFrame -> BE.Encoder
-encodeFrame frame =
+encodeStoreRef : Maybe VariableRef -> BE.Encoder
+encodeStoreRef ref =
     let
-        ( storeFlag, storeKind, storeNum ) =
-            case frame.returnStore of
+        ( flag, kind, num ) =
+            case ref of
                 Nothing ->
                     ( 0, 0, 0 )
 
@@ -412,19 +399,22 @@ encodeFrame frame =
 
                 Just (Global n) ->
                     ( 1, 2, n )
-
-        localsList =
-            Array.toList frame.locals
     in
     BE.sequence
+        [ BE.unsignedInt8 flag
+        , BE.unsignedInt8 kind
+        , BE.unsignedInt8 num
+        ]
+
+
+encodeFrame : CallFrame -> BE.Encoder
+encodeFrame frame =
+    BE.sequence
         [ BE.unsignedInt32 Bytes.BE frame.returnPC
-        , BE.unsignedInt8 storeFlag
-        , BE.unsignedInt8 storeKind
-        , BE.unsignedInt8 storeNum
-        , BE.unsignedInt8 (List.length localsList)
-        , BE.sequence (List.map (\w -> BE.unsignedInt16 Bytes.BE (Bitwise.and w 0xFFFF)) localsList)
-        , BE.unsignedInt32 Bytes.BE (List.length frame.evalStack)
-        , BE.sequence (List.map (\w -> BE.unsignedInt16 Bytes.BE (Bitwise.and w 0xFFFF)) frame.evalStack)
+        , encodeStoreRef frame.returnStore
+        , BE.unsignedInt8 (Array.length frame.locals)
+        , BE.sequence (Array.toList frame.locals |> List.map encodeWord)
+        , encodeLengthPrefixed encodeWord frame.evalStack
         ]
 
 
@@ -434,73 +424,66 @@ encodeFrame frame =
 
 nativeDecoder : BD.Decoder (Result String Snapshot)
 nativeDecoder =
-    BD.unsignedInt32 Bytes.BE
+    BD.map2 Tuple.pair
+        (BD.unsignedInt32 Bytes.BE)
+        BD.unsignedInt8
         |> BD.andThen
-            (\magic ->
+            (\( magic, version ) ->
                 if magic /= nativeMagic then
                     BD.succeed (Err "Snapshot bytes have wrong magic")
 
-                else
-                    BD.unsignedInt8
-                        |> BD.andThen
-                            (\version ->
-                                if version /= nativeVersion then
-                                    BD.succeed (Err ("Snapshot format version " ++ String.fromInt version ++ " not supported"))
+                else if version /= nativeVersion then
+                    BD.succeed (Err ("Snapshot format version " ++ String.fromInt version ++ " not supported"))
 
-                                else
-                                    decodeBody
-                            )
+                else
+                    decodeBody
             )
 
 
 decodeBody : BD.Decoder (Result String Snapshot)
 decodeBody =
-    BD.unsignedInt8
-        |> BD.andThen
-            (\resumeByte ->
-                case byteToResumeKind resumeByte of
-                    Err e ->
-                        BD.succeed (Err e)
+    BD.succeed assembleSnapshot
+        |> andMap BD.unsignedInt8
+        |> andMap (BD.unsignedInt16 Bytes.BE)
+        |> andMap (decodeSerial 6)
+        |> andMap (BD.unsignedInt16 Bytes.BE)
+        |> andMap (BD.unsignedInt32 Bytes.BE)
+        |> andMap decodeByteArray
+        |> andMap decodeWordList
+        |> andMap decodeFrames
 
-                    Ok resume ->
-                        BD.map5
-                            (\release serial checksum pcAddr dynMem ->
-                                { resume = resume
-                                , release = release
-                                , serial = serial
-                                , checksum = checksum
-                                , pcAddr = pcAddr
-                                , dynMem = dynMem
-                                }
-                            )
-                            (BD.unsignedInt16 Bytes.BE)
-                            (decodeSerial 6)
-                            (BD.unsignedInt16 Bytes.BE)
-                            (BD.unsignedInt32 Bytes.BE)
-                            decodeByteArray
-                            |> BD.andThen
-                                (\header ->
-                                    BD.map2
-                                        (\evalStack frames ->
-                                            Ok
-                                                (Snapshot
-                                                    { dynamicMem = header.dynMem
-                                                    , pcAddr = header.pcAddr
-                                                    , evalStack = evalStack
-                                                    , callFrames = frames
-                                                    , resume = header.resume
-                                                    , metaData =
-                                                        { release = header.release
-                                                        , serial = header.serial
-                                                        , checksum = header.checksum
-                                                        }
-                                                    }
-                                                )
-                                        )
-                                        decodeWordList
-                                        decodeFrames
-                                )
+
+assembleSnapshot : Int -> Int -> String -> Int -> Int -> Array Int -> List Int -> List CallFrame -> Result String Snapshot
+assembleSnapshot resumeByte release serial checksum pcAddr dynMem evalStack frames =
+    byteToResumeKind resumeByte
+        |> Result.map
+            (\resume ->
+                Snapshot
+                    { dynamicMem = dynMem
+                    , pcAddr = pcAddr
+                    , evalStack = evalStack
+                    , callFrames = frames
+                    , resume = resume
+                    , metaData =
+                        { release = release
+                        , serial = serial
+                        , checksum = checksum
+                        }
+                    }
             )
+
+
+{-| Applicative apply for `BD.Decoder`. Lets us build a decoder that
+reads N fields in sequence and feeds them to a curried N-argument
+function without nesting `andThen`s (or running out of `mapN`s).
+
+Reads the function-decoder first, then the argument-decoder — matching
+the pipeline ordering `BD.succeed f |> andMap a |> andMap b`.
+
+-}
+andMap : BD.Decoder a -> BD.Decoder (a -> b) -> BD.Decoder b
+andMap decA decFn =
+    BD.map2 (\f a -> f a) decFn decA
 
 
 byteToResumeKind : Int -> Result String ResumeKind
@@ -518,124 +501,95 @@ byteToResumeKind b =
 
 decodeSerial : Int -> BD.Decoder String
 decodeSerial n =
-    BD.loop ( n, [] )
-        (\( remaining, acc ) ->
-            if remaining <= 0 then
-                BD.succeed (BD.Done (String.fromList (List.reverse acc)))
-
-            else
-                BD.unsignedInt8
-                    |> BD.map (\b -> BD.Loop ( remaining - 1, Char.fromCode b :: acc ))
-        )
+    repeatDecoder n BD.unsignedInt8
+        |> BD.map (List.map Char.fromCode >> String.fromList)
 
 
 decodeByteArray : BD.Decoder (Array Int)
 decodeByteArray =
-    BD.unsignedInt32 Bytes.BE
-        |> BD.andThen
-            (\len ->
-                BD.loop ( len, Array.empty )
-                    (\( remaining, acc ) ->
-                        if remaining <= 0 then
-                            BD.succeed (BD.Done acc)
-
-                        else
-                            BD.unsignedInt8
-                                |> BD.map (\b -> BD.Loop ( remaining - 1, Array.push b acc ))
-                    )
-            )
+    lengthPrefixed BD.unsignedInt8
+        |> BD.map Array.fromList
 
 
 decodeWordList : BD.Decoder (List Int)
 decodeWordList =
-    BD.unsignedInt32 Bytes.BE
-        |> BD.andThen
-            (\len ->
-                BD.loop ( len, [] )
-                    (\( remaining, acc ) ->
-                        if remaining <= 0 then
-                            BD.succeed (BD.Done (List.reverse acc))
-
-                        else
-                            BD.unsignedInt16 Bytes.BE
-                                |> BD.map (\w -> BD.Loop ( remaining - 1, w :: acc ))
-                    )
-            )
+    lengthPrefixed (BD.unsignedInt16 Bytes.BE)
 
 
 decodeFrames : BD.Decoder (List CallFrame)
 decodeFrames =
-    BD.unsignedInt32 Bytes.BE
-        |> BD.andThen
-            (\count ->
-                BD.loop ( count, [] )
-                    (\( remaining, acc ) ->
-                        if remaining <= 0 then
-                            BD.succeed (BD.Done (List.reverse acc))
-
-                        else
-                            decodeFrame
-                                |> BD.map (\f -> BD.Loop ( remaining - 1, f :: acc ))
-                    )
-            )
+    lengthPrefixed decodeFrame
 
 
 decodeFrame : BD.Decoder CallFrame
 decodeFrame =
+    BD.map3 (\rpc sr ll -> ( rpc, sr, ll ))
+        (BD.unsignedInt32 Bytes.BE)
+        decodeStoreRef
+        BD.unsignedInt8
+        |> BD.andThen decodeFrameBody
+
+
+decodeFrameBody : ( Int, Maybe VariableRef, Int ) -> BD.Decoder CallFrame
+decodeFrameBody ( returnPC, storeRef, localsLen ) =
+    BD.map2
+        (\locals evalStack ->
+            { returnPC = returnPC
+            , returnStore = storeRef
+            , locals = locals
+            , evalStack = evalStack
+            }
+        )
+        (repeatDecoder localsLen (BD.unsignedInt16 Bytes.BE)
+            |> BD.map Array.fromList
+        )
+        decodeWordList
+
+
+decodeStoreRef : BD.Decoder (Maybe VariableRef)
+decodeStoreRef =
+    BD.map3 storeRefFromBytes
+        BD.unsignedInt8
+        BD.unsignedInt8
+        BD.unsignedInt8
+
+
+storeRefFromBytes : Int -> Int -> Int -> Maybe VariableRef
+storeRefFromBytes flag kind num =
+    if flag == 0 then
+        Nothing
+
+    else
+        case kind of
+            0 ->
+                Just Stack
+
+            1 ->
+                Just (Local num)
+
+            _ ->
+                Just (Global num)
+
+
+{-| Read a u32 big-endian length, then that many items. Inverse of
+[`encodeLengthPrefixed`](#encodeLengthPrefixed).
+-}
+lengthPrefixed : BD.Decoder a -> BD.Decoder (List a)
+lengthPrefixed itemDecoder =
     BD.unsignedInt32 Bytes.BE
-        |> BD.andThen
-            (\returnPC ->
-                BD.map3 (\flag kind num -> ( flag, kind, num ))
-                    BD.unsignedInt8
-                    BD.unsignedInt8
-                    BD.unsignedInt8
-                    |> BD.andThen
-                        (\( storeFlag, storeKind, storeNum ) ->
-                            let
-                                storeRef =
-                                    if storeFlag == 0 then
-                                        Nothing
-
-                                    else
-                                        case storeKind of
-                                            0 ->
-                                                Just Stack
-
-                                            1 ->
-                                                Just (Local storeNum)
-
-                                            _ ->
-                                                Just (Global storeNum)
-                            in
-                            BD.unsignedInt8
-                                |> BD.andThen
-                                    (\localsLen ->
-                                        decodeWordArray localsLen
-                                            |> BD.andThen
-                                                (\locals ->
-                                                    decodeWordList
-                                                        |> BD.map
-                                                            (\evalStack ->
-                                                                { returnPC = returnPC
-                                                                , returnStore = storeRef
-                                                                , locals = locals
-                                                                , evalStack = evalStack
-                                                                }
-                                                            )
-                                                )
-                                    )
-                        )
-            )
+        |> BD.andThen (\count -> repeatDecoder count itemDecoder)
 
 
-decodeWordArray : Int -> BD.Decoder (Array Int)
-decodeWordArray count =
-    BD.loop ( count, Array.empty )
+{-| Run the given decoder `count` times, collecting the results in order.
+-}
+repeatDecoder : Int -> BD.Decoder a -> BD.Decoder (List a)
+repeatDecoder count itemDecoder =
+    BD.loop ( count, [] )
         (\( remaining, acc ) ->
             if remaining <= 0 then
-                BD.succeed (BD.Done acc)
+                BD.succeed (BD.Done (List.reverse acc))
 
             else
-                BD.unsignedInt16 Bytes.BE
-                    |> BD.map (\w -> BD.Loop ( remaining - 1, Array.push w acc ))
+                itemDecoder
+                    |> BD.map (\item -> BD.Loop ( remaining - 1, item :: acc ))
         )

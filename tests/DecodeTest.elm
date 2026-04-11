@@ -1,10 +1,12 @@
-module InstructionTest exposing (suite)
+module DecodeTest exposing (suite)
 
 import Bitwise
 import Bytes.Encode as Encode
 import Expect
 import Test exposing (Test, describe, test)
-import ZMachine.Instruction as Inst
+import ZMachine.Decode as Decode
+import ZMachine.Memory as Memory exposing (Memory)
+import ZMachine.Opcode as Opcode
     exposing
         ( BranchTarget(..)
         , Op0(..)
@@ -15,12 +17,11 @@ import ZMachine.Instruction as Inst
         , Operand(..)
         , VariableRef(..)
         )
-import ZMachine.Memory as Memory exposing (Memory)
 
 
 suite : Test
 suite =
-    describe "ZMachine.Instruction"
+    describe "ZMachine.Decode"
         [ shortFormTests
         , longFormTests
         , variableFormTests
@@ -115,7 +116,7 @@ shortFormTests =
                         memWithBytes [ 0xB0 ]
 
                     instr =
-                        Inst.decode instrAddr mem
+                        Decode.decode instrAddr mem
                 in
                 instr.opcode
                     |> Expect.equal (Op0 Rtrue)
@@ -123,7 +124,7 @@ shortFormTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB1 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB1 ])
                 in
                 instr.opcode
                     |> Expect.equal (Op0 Rfalse)
@@ -132,7 +133,7 @@ shortFormTests =
                 let
                     -- 0xB2 followed by a Z-string word with end bit set: 0x8000 + some chars
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB2, 0x80, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB2, 0x80, 0x00 ])
                 in
                 instr.operands
                     |> Expect.equal []
@@ -140,7 +141,7 @@ shortFormTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xBA ])
+                        Decode.decode instrAddr (memWithBytes [ 0xBA ])
                 in
                 instr.opcode
                     |> Expect.equal (Op0 Quit)
@@ -150,7 +151,7 @@ shortFormTests =
                     -- 0x8F = 10 00 1111 = short form, large constant, opcode 15 (not)
                     -- Followed by 2-byte large constant 0x1234
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x8F, 0x12, 0x34 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x8F, 0x12, 0x34 ])
                 in
                 ( instr.opcode, instr.operands )
                     |> Expect.equal ( Op1 Not, [ LargeConstant 0x1234 ] )
@@ -160,7 +161,7 @@ shortFormTests =
                     -- 0x90 = 10 01 0000 = short form, small constant, opcode 0 (jz)
                     -- Followed by 1-byte small constant 0x42, then branch byte
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x90, 0x42, 0xC0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x90, 0x42, 0xC0 ])
                 in
                 ( instr.opcode, instr.operands )
                     |> Expect.equal ( Op1 Jz, [ SmallConstant 0x42 ] )
@@ -170,7 +171,7 @@ shortFormTests =
                     -- 0xAB = 10 10 1011 = short form, variable, opcode 11 (ret)
                     -- Variable 0x03 = Local 3
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xAB, 0x03 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xAB, 0x03 ])
                 in
                 ( instr.opcode, instr.operands )
                     |> Expect.equal ( Op1 Ret, [ Variable (Local 3) ] )
@@ -179,7 +180,7 @@ shortFormTests =
                 let
                     -- 0xAB = ret with variable operand, variable 0x00 = Stack
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xAB, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xAB, 0x00 ])
                 in
                 instr.operands
                     |> Expect.equal [ Variable Stack ]
@@ -188,7 +189,7 @@ shortFormTests =
                 let
                     -- 0xAB = ret with variable operand, variable 0x10 = Global 0x10
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xAB, 0x10 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xAB, 0x10 ])
                 in
                 instr.operands
                     |> Expect.equal [ Variable (Global 0x10) ]
@@ -209,7 +210,7 @@ longFormTests =
                     -- operands: 0x05, 0x0A
                     -- branch byte: 0xC0 (condition=true, single byte, offset 0 = return false)
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x01, 0x05, 0x0A, 0xC0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x01, 0x05, 0x0A, 0xC0 ])
                 in
                 ( instr.opcode, instr.operands )
                     |> Expect.equal ( Op2 Je, [ SmallConstant 0x05, SmallConstant 0x0A ] )
@@ -220,7 +221,7 @@ longFormTests =
                     -- operands: var 0x02 (Local 2), small 0x03
                     -- store: variable 0x01 (Local 1)
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x54, 0x02, 0x03, 0x01 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x54, 0x02, 0x03, 0x01 ])
                 in
                 ( instr.opcode, instr.operands, instr.store )
                     |> Expect.equal
@@ -237,7 +238,7 @@ longFormTests =
                     -- bit 5: 1 → second operand is variable
                     -- bits 4-0: 10101 = 21 (sub)
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x35, 0x01, 0x02, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x35, 0x01, 0x02, 0x00 ])
                 in
                 ( instr.opcode, instr.operands, instr.store )
                     |> Expect.equal
@@ -250,7 +251,7 @@ longFormTests =
                 let
                     -- 0x01 = long, small, small, je
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x01, 0x00, 0x00, 0xC0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x01, 0x00, 0x00, 0xC0 ])
                 in
                 instr.opcode
                     |> Expect.equal (Op2 Je)
@@ -261,7 +262,7 @@ longFormTests =
                     -- operands: array addr, index
                     -- store variable
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x0F, 0x10, 0x02, 0x05 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x0F, 0x10, 0x02, 0x05 ])
                 in
                 instr.store
                     |> Expect.equal (Just (Local 5))
@@ -283,7 +284,7 @@ variableFormTests =
                     -- operands: large 0x1234, small 0x05
                     -- store: variable 0x00 (stack)
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xE0, 0x1F, 0x12, 0x34, 0x05, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xE0, 0x1F, 0x12, 0x34, 0x05, 0x00 ])
                 in
                 ( instr.opcode, instr.operands, instr.store )
                     |> Expect.equal
@@ -296,7 +297,7 @@ variableFormTests =
                 let
                     -- types: 00 11 11 11 = large, omit, omit, omit → 0x3F
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xE0, 0x3F, 0x12, 0x34, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xE0, 0x3F, 0x12, 0x34, 0x00 ])
                 in
                 ( instr.opcode, instr.operands )
                     |> Expect.equal ( OpVar Call, [ LargeConstant 0x1234 ] )
@@ -306,7 +307,7 @@ variableFormTests =
                     -- 0xE1 = variable form, VAR, opcode 1 (storew)
                     -- types: 00 01 01 11 = large, small, small, omit → 0b00010111 = 0x17
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xE1, 0x17, 0x10, 0x00, 0x02, 0xAB ])
+                        Decode.decode instrAddr (memWithBytes [ 0xE1, 0x17, 0x10, 0x00, 0x02, 0xAB ])
                 in
                 ( instr.opcode, instr.operands )
                     |> Expect.equal
@@ -321,7 +322,7 @@ variableFormTests =
                     -- types: 01 01 01 11 = small, small, small, omit → 0x57
                     -- branch byte after 3 operands
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xC1, 0x57, 0x05, 0x0A, 0x0F, 0xC0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xC1, 0x57, 0x05, 0x0A, 0x0F, 0xC0 ])
                 in
                 ( instr.opcode, List.length instr.operands )
                     |> Expect.equal ( Op2 Je, 3 )
@@ -331,7 +332,7 @@ variableFormTests =
                     -- types: 00 01 10 11 = large, small, variable, omit → 0b00011011 = 0x1B
                     -- 0xE0 = call
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xE0, 0x1B, 0xAB, 0xCD, 0x42, 0x03, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xE0, 0x1B, 0xAB, 0xCD, 0x42, 0x03, 0x00 ])
                 in
                 instr.operands
                     |> Expect.equal
@@ -355,7 +356,7 @@ branchTests =
                     -- jz (0x90) with small constant 0, then branch byte 0xC0
                     -- 0xC0 = 1 1 000000: condition=true(bit7), single(bit6), offset=0
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x90, 0x00, 0xC0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x90, 0x00, 0xC0 ])
                 in
                 instr.branch
                     |> Expect.equal (Just { condition = True, target = ReturnFalse })
@@ -363,7 +364,7 @@ branchTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x90, 0x00, 0xC1 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x90, 0x00, 0xC1 ])
                 in
                 instr.branch
                     |> Expect.equal (Just { condition = True, target = ReturnTrue })
@@ -372,7 +373,7 @@ branchTests =
                 let
                     -- 0x42 = 0 1 000010: condition=false, single, offset=2
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x90, 0x00, 0x42 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x90, 0x00, 0x42 ])
                 in
                 instr.branch
                     |> Expect.equal (Just { condition = False, target = Offset 2 })
@@ -381,7 +382,7 @@ branchTests =
                 let
                     -- 0x80 0x10 = 1 0 000000 00010000: condition=true, two-byte, offset = 0x0010 = 16
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x90, 0x00, 0x80, 0x10 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x90, 0x00, 0x80, 0x10 ])
                 in
                 instr.branch
                     |> Expect.equal (Just { condition = True, target = Offset 16 })
@@ -391,7 +392,7 @@ branchTests =
                     -- 0xBF 0xFE = 1 0 111111 11111110: condition=true, two-byte
                     -- raw14 = 0x3FFE = 16382, > 8191 so offset = 16382 - 16384 = -2
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x90, 0x00, 0xBF, 0xFE ])
+                        Decode.decode instrAddr (memWithBytes [ 0x90, 0x00, 0xBF, 0xFE ])
                 in
                 instr.branch
                     |> Expect.equal (Just { condition = True, target = Offset -2 })
@@ -400,7 +401,7 @@ branchTests =
                 let
                     -- rtrue (0xB0) does not branch
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB0 ])
                 in
                 instr.branch
                     |> Expect.equal Nothing
@@ -419,7 +420,7 @@ storeTests =
                 let
                     -- long form add: 0x14 = opcode 20
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x14, 0x01, 0x02, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x14, 0x01, 0x02, 0x00 ])
                 in
                 instr.store
                     |> Expect.equal (Just Stack)
@@ -427,7 +428,7 @@ storeTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x14, 0x01, 0x02, 0x05 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x14, 0x01, 0x02, 0x05 ])
                 in
                 instr.store
                     |> Expect.equal (Just (Local 5))
@@ -435,7 +436,7 @@ storeTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x14, 0x01, 0x02, 0x10 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x14, 0x01, 0x02, 0x10 ])
                 in
                 instr.store
                     |> Expect.equal (Just (Global 0x10))
@@ -443,7 +444,7 @@ storeTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x01, 0x01, 0x02, 0xC0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x01, 0x01, 0x02, 0xC0 ])
                 in
                 instr.store
                     |> Expect.equal Nothing
@@ -456,7 +457,7 @@ storeTests =
                     -- store: 0x03 (local 3)
                     -- branch: 0xC1 (true, single, offset 1 = ReturnTrue)
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x92, 0x05, 0x03, 0xC1 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x92, 0x05, 0x03, 0xC1 ])
                 in
                 ( instr.store, instr.branch )
                     |> Expect.equal
@@ -479,7 +480,7 @@ inlineTextTests =
                     -- 0xB2 = print, followed by Z-string
                     -- Single word with end bit: 0x8000
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB2, 0x80, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB2, 0x80, 0x00 ])
                 in
                 instr.textLiteral
                     |> Expect.equal (Just [ 0x8000 ])
@@ -487,7 +488,7 @@ inlineTextTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB3, 0x80, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB3, 0x80, 0x00 ])
                 in
                 instr.textLiteral
                     |> Expect.equal (Just [ 0x8000 ])
@@ -496,7 +497,7 @@ inlineTextTests =
                 let
                     -- Two words: first without end bit, second with end bit
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB2, 0x11, 0x22, 0x93, 0x44 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB2, 0x11, 0x22, 0x93, 0x44 ])
                 in
                 instr.textLiteral
                     |> Expect.equal (Just [ 0x1122, 0x9344 ])
@@ -504,7 +505,7 @@ inlineTextTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB0 ])
                 in
                 instr.textLiteral
                     |> Expect.equal Nothing
@@ -522,7 +523,7 @@ lengthTests =
             \_ ->
                 let
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB0 ])
                 in
                 instr.length
                     |> Expect.equal 1
@@ -531,7 +532,7 @@ lengthTests =
                 let
                     -- add: opcode(1) + small(1) + small(1) + store(1) = 4
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x14, 0x01, 0x02, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x14, 0x01, 0x02, 0x00 ])
                 in
                 instr.length
                     |> Expect.equal 4
@@ -540,7 +541,7 @@ lengthTests =
                 let
                     -- je: opcode(1) + small(1) + small(1) + branch(1) = 4
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x01, 0x05, 0x0A, 0xC0 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x01, 0x05, 0x0A, 0xC0 ])
                 in
                 instr.length
                     |> Expect.equal 4
@@ -549,7 +550,7 @@ lengthTests =
                 let
                     -- je: opcode(1) + small(1) + small(1) + branch(2) = 5
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x01, 0x05, 0x0A, 0x80, 0x10 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x01, 0x05, 0x0A, 0x80, 0x10 ])
                 in
                 instr.length
                     |> Expect.equal 5
@@ -558,7 +559,7 @@ lengthTests =
                 let
                     -- not: opcode(1) + large(2) + store(1) = 4
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x8F, 0x12, 0x34, 0x01 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x8F, 0x12, 0x34, 0x01 ])
                 in
                 instr.length
                     |> Expect.equal 4
@@ -567,7 +568,7 @@ lengthTests =
                 let
                     -- call: opcode(1) + types(1) + large(2) + small(1) + store(1) = 6
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xE0, 0x1F, 0x12, 0x34, 0x05, 0x00 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xE0, 0x1F, 0x12, 0x34, 0x05, 0x00 ])
                 in
                 instr.length
                     |> Expect.equal 6
@@ -576,7 +577,7 @@ lengthTests =
                 let
                     -- print: opcode(1) + 2 words of text(4) = 5
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0xB2, 0x11, 0x22, 0x93, 0x44 ])
+                        Decode.decode instrAddr (memWithBytes [ 0xB2, 0x11, 0x22, 0x93, 0x44 ])
                 in
                 instr.length
                     |> Expect.equal 5
@@ -585,7 +586,7 @@ lengthTests =
                 let
                     -- short 1OP: opcode(1) + small(1) + store(1) + branch(1) = 4
                     instr =
-                        Inst.decode instrAddr (memWithBytes [ 0x92, 0x05, 0x03, 0xC1 ])
+                        Decode.decode instrAddr (memWithBytes [ 0x92, 0x05, 0x03, 0xC1 ])
                 in
                 instr.length
                     |> Expect.equal 4
@@ -601,54 +602,54 @@ opcodeClassificationTests =
     describe "opcode classification"
         [ test "add stores result" <|
             \_ ->
-                Inst.storesResult (Op2 Add)
+                Opcode.storesResult (Op2 Add)
                     |> Expect.equal True
         , test "je does not store" <|
             \_ ->
-                Inst.storesResult (Op2 Je)
+                Opcode.storesResult (Op2 Je)
                     |> Expect.equal False
         , test "je branches" <|
             \_ ->
-                Inst.branches (Op2 Je)
+                Opcode.branches (Op2 Je)
                     |> Expect.equal True
         , test "add does not branch" <|
             \_ ->
-                Inst.branches (Op2 Add)
+                Opcode.branches (Op2 Add)
                     |> Expect.equal False
         , test "get_child both stores and branches" <|
             \_ ->
-                ( Inst.storesResult (Op1 GetChild), Inst.branches (Op1 GetChild) )
+                ( Opcode.storesResult (Op1 GetChild), Opcode.branches (Op1 GetChild) )
                     |> Expect.equal ( True, True )
         , test "get_sibling both stores and branches" <|
             \_ ->
-                ( Inst.storesResult (Op1 GetSibling), Inst.branches (Op1 GetSibling) )
+                ( Opcode.storesResult (Op1 GetSibling), Opcode.branches (Op1 GetSibling) )
                     |> Expect.equal ( True, True )
         , test "save branches" <|
             \_ ->
-                Inst.branches (Op0 Save)
+                Opcode.branches (Op0 Save)
                     |> Expect.equal True
         , test "print has text" <|
             \_ ->
-                Inst.hasText (Op0 Print)
+                Opcode.hasText (Op0 Print)
                     |> Expect.equal True
         , test "print_ret has text" <|
             \_ ->
-                Inst.hasText (Op0 PrintRet)
+                Opcode.hasText (Op0 PrintRet)
                     |> Expect.equal True
         , test "rtrue has no text" <|
             \_ ->
-                Inst.hasText (Op0 Rtrue)
+                Opcode.hasText (Op0 Rtrue)
                     |> Expect.equal False
         , test "call stores" <|
             \_ ->
-                Inst.storesResult (OpVar Call)
+                Opcode.storesResult (OpVar Call)
                     |> Expect.equal True
         , test "random stores" <|
             \_ ->
-                Inst.storesResult (OpVar Random)
+                Opcode.storesResult (OpVar Random)
                     |> Expect.equal True
         , test "storew does not store" <|
             \_ ->
-                Inst.storesResult (OpVar Storew)
+                Opcode.storesResult (OpVar Storew)
                     |> Expect.equal False
         ]

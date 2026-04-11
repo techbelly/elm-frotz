@@ -21,7 +21,8 @@ import Library.IntExtra
         , xorshift
         )
 import Library.ListExtra exposing (getAt)
-import ZMachine.Instruction as Inst
+import ZMachine.Decode as Decode
+import ZMachine.Opcode as Opcode
     exposing
         ( BranchTarget(..)
         , Instruction
@@ -31,7 +32,6 @@ import ZMachine.Instruction as Inst
         , OpVar(..)
         , Opcode(..)
         , Operand(..)
-        , VariableRef(..)
         , variableRefFromByte
         )
 import ZMachine.Memory as Memory
@@ -54,7 +54,7 @@ step : ZMachine -> StepResult
 step machine =
     let
         instr =
-            Inst.decode machine.pc machine.memory
+            Decode.decode machine.pc machine.memory
 
         nextPC =
             machine.pc + instr.length
@@ -207,7 +207,7 @@ execute instr nextPC ops machine =
             else
                 storeResult instr (modInt16 (operandAt 0 ops) (operandAt 1 ops)) m
 
-        Op2 (Inst.Unknown2Op n) ->
+        Op2 (Opcode.Unknown2Op n) ->
             Error (InvalidOpcode n) m
 
         -- 1OP
@@ -278,7 +278,7 @@ execute instr nextPC ops machine =
         Op1 Not ->
             storeResult instr (Bitwise.and (Bitwise.complement (operandAt 0 ops)) 0xFFFF) m
 
-        Op1 (Inst.Unknown1Op n) ->
+        Op1 (Opcode.Unknown1Op n) ->
             Error (InvalidOpcode n) m
 
         -- 0OP
@@ -366,7 +366,7 @@ execute instr nextPC ops machine =
             -- Always branch (no piracy check)
             executeBranch instr True m
 
-        Op0 (Inst.Unknown0Op n) ->
+        Op0 (Opcode.Unknown0Op n) ->
             Error (InvalidOpcode n) m
 
         -- VAR
@@ -480,7 +480,7 @@ execute instr nextPC ops machine =
         OpVar SoundEffect ->
             Continue (State.appendOutput (Types.PlaySound (operandAt 0 ops)) m)
 
-        OpVar (Inst.UnknownVar n) ->
+        OpVar (Opcode.UnknownVar n) ->
             Error (InvalidOpcode n) m
 
 

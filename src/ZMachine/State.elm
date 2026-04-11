@@ -18,7 +18,7 @@ execution engine. Library consumers should use `ZMachine` and
 -}
 
 import Library.IntExtra exposing (toUnsignedInt16)
-import ZMachine.Instruction exposing (VariableRef(..))
+import ZMachine.Opcode exposing (VariableRef(..))
 import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Header as Header
 import ZMachine.Stack

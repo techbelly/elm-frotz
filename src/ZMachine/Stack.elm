@@ -12,7 +12,7 @@ evaluation stack at the point of the call.
 
 import Array exposing (Array)
 import Library.IntExtra exposing (toUnsignedInt16)
-import ZMachine.Instruction exposing (VariableRef)
+import ZMachine.Opcode exposing (VariableRef)
 
 
 {-| A single call stack frame.

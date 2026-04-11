@@ -6,8 +6,8 @@ import Bytes.Encode as Encode
 import Expect
 import Test exposing (Test, describe, test)
 import ZMachine.Execute as Execute
-import ZMachine.Instruction exposing (VariableRef(..))
 import ZMachine.Memory as Memory
+import ZMachine.Opcode exposing (VariableRef(..))
 import ZMachine.Run as Run
 import ZMachine.State as State
 import ZMachine.Types

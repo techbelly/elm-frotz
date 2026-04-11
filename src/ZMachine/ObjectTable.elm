@@ -1,7 +1,7 @@
 module ZMachine.ObjectTable exposing
     ( parent, sibling, child
     , setParent, setSibling, setChild
-    , propertyTableAddress
+    , shortName
     , testAttribute, setAttribute, clearAttribute
     , removeFromParent
     , findProperty, nextPropertyNumber
@@ -33,7 +33,7 @@ without guarding explicitly.
 
 # Properties
 
-@docs propertyTableAddress, findProperty, nextPropertyNumber
+@docs shortName, findProperty, nextPropertyNumber
 @docs propertyDefault, propertyLength
 
 -}
@@ -41,6 +41,7 @@ without guarding explicitly.
 import Bitwise
 import ZMachine.Header as Header
 import ZMachine.Memory as Memory exposing (Memory)
+import ZMachine.Text as Text
 
 
 
@@ -291,6 +292,30 @@ propertyTableAddress objNum mem =
 
     else
         Memory.readWord (address objNum mem + propertyPointerOffset) mem
+
+
+{-| The object's short name — the encoded Z-string stored at the head of
+its property table. Returns `""` for `objNum == 0` and for objects whose
+name header has zero length.
+-}
+shortName : Int -> Memory -> String
+shortName objNum mem =
+    if objNum == 0 then
+        ""
+
+    else
+        let
+            propTableAddr =
+                propertyTableAddress objNum mem
+
+            nameLen =
+                Memory.readByte propTableAddr mem
+        in
+        if nameLen == 0 then
+            ""
+
+        else
+            Tuple.first (Text.decodeZString (propTableAddr + 1) mem)
 
 
 {-| Address of the first property entry, i.e. just past the short-name

@@ -10,7 +10,17 @@ Decodes and executes a single instruction, returning the resulting state.
 
 import Array
 import Bitwise
-import Library.IntExtra exposing (toSignedInt16, toUnsignedInt16, truncDiv, truncMod)
+import Library.IntExtra
+    exposing
+        ( addInt16
+        , divInt16
+        , modInt16
+        , mulInt16
+        , subInt16
+        , toSignedInt16
+        , toUnsignedInt16
+        , xorshift
+        )
 import Library.ListExtra exposing (getAt)
 import ZMachine.Instruction as Inst
     exposing
@@ -25,9 +35,9 @@ import ZMachine.Instruction as Inst
         , VariableRef(..)
         )
 import ZMachine.Memory as Memory
-import ZMachine.Header as Header
 import ZMachine.ObjectTable as ObjectTable
 import ZMachine.State as State
+import ZMachine.StatusLine as StatusLine
 import ZMachine.Text as Text
 import ZMachine.Types as Types
     exposing
@@ -61,16 +71,20 @@ step machine =
 
 resolveOperands : List Operand -> ZMachine -> ( List Int, ZMachine )
 resolveOperands operands machine =
-    List.foldl
-        (\op ( acc, m ) ->
-            let
-                ( val, m2 ) =
-                    resolveOperand op m
-            in
-            ( acc ++ [ val ], m2 )
-        )
-        ( [], machine )
-        operands
+    let
+        ( reversed, finalMachine ) =
+            List.foldl
+                (\op ( acc, m ) ->
+                    let
+                        ( val, m2 ) =
+                            resolveOperand op m
+                    in
+                    ( val :: acc, m2 )
+                )
+                ( [], machine )
+                operands
+    in
+    ( List.reverse reversed, finalMachine )
 
 
 resolveOperand : Operand -> ZMachine -> ( Int, ZMachine )
@@ -171,27 +185,27 @@ execute instr nextPC ops machine =
             executeGetNextProp instr ops m
 
         Op2 Add ->
-            storeResult instr (toUnsignedInt16 (toSignedInt16 (getOp 0 ops) + toSignedInt16 (getOp 1 ops))) m
+            storeResult instr (addInt16 (getOp 0 ops) (getOp 1 ops)) m
 
         Op2 Sub ->
-            storeResult instr (toUnsignedInt16 (toSignedInt16 (getOp 0 ops) - toSignedInt16 (getOp 1 ops))) m
+            storeResult instr (subInt16 (getOp 0 ops) (getOp 1 ops)) m
 
         Op2 Mul ->
-            storeResult instr (toUnsignedInt16 (toSignedInt16 (getOp 0 ops) * toSignedInt16 (getOp 1 ops))) m
+            storeResult instr (mulInt16 (getOp 0 ops) (getOp 1 ops)) m
 
         Op2 Div ->
             if getOp 1 ops == 0 then
                 Error DivisionByZero m
 
             else
-                storeResult instr (toUnsignedInt16 (truncDiv (toSignedInt16 (getOp 0 ops)) (toSignedInt16 (getOp 1 ops)))) m
+                storeResult instr (divInt16 (getOp 0 ops) (getOp 1 ops)) m
 
         Op2 Mod ->
             if getOp 1 ops == 0 then
                 Error DivisionByZero m
 
             else
-                storeResult instr (toUnsignedInt16 (truncMod (toSignedInt16 (getOp 0 ops)) (toSignedInt16 (getOp 1 ops)))) m
+                storeResult instr (modInt16 (getOp 0 ops) (getOp 1 ops)) m
 
         Op2 (Inst.Unknown2Op n) ->
             Error (InvalidOpcode n) m
@@ -889,22 +903,8 @@ executePutProp ops machine =
 executePrintObj : List Int -> ZMachine -> StepResult
 executePrintObj ops machine =
     let
-        propTableAddr =
-            ObjectTable.propertyTableAddress (getOp 0 ops) machine.memory
-
-        nameLen =
-            Memory.readByte propTableAddr machine.memory
-
         name =
-            if nameLen == 0 then
-                ""
-
-            else
-                let
-                    ( str, _ ) =
-                        Text.decodeZString (propTableAddr + 1) machine.memory
-                in
-                str
+            ObjectTable.shortName (getOp 0 ops) machine.memory
     in
     Continue (State.appendOutput (Types.PrintText name) machine)
 
@@ -915,55 +915,7 @@ executePrintObj ops machine =
 
 executeShowStatus : ZMachine -> StepResult
 executeShowStatus machine =
-    let
-        globalsAddr =
-            Header.globalVariablesAddress machine.memory
-
-        -- Global 0 (var 0x10) = location object number
-        locationObj =
-            Memory.readWord globalsAddr machine.memory
-
-        -- Global 1 (var 0x11) = score or hours
-        scoreOrHours =
-            toSignedInt16 (Memory.readWord (globalsAddr + Memory.wordLength) machine.memory)
-
-        -- Global 2 (var 0x12) = turns or minutes
-        turnsOrMinutes =
-            Memory.readWord (globalsAddr + 2 * Memory.wordLength) machine.memory
-
-        isTimeGame =
-            Header.testFlag1 Header.StatusLineType machine.memory
-
-        locationName =
-            if locationObj == 0 then
-                ""
-
-            else
-                let
-                    propTableAddr =
-                        ObjectTable.propertyTableAddress locationObj machine.memory
-
-                    nameLen =
-                        Memory.readByte propTableAddr machine.memory
-                in
-                if nameLen == 0 then
-                    ""
-
-                else
-                    let
-                        ( str, _ ) =
-                            Text.decodeZString (propTableAddr + 1) machine.memory
-                    in
-                    str
-
-        status =
-            { locationName = locationName
-            , score = scoreOrHours
-            , turns = turnsOrMinutes
-            , isTimeGame = isTimeGame
-            }
-    in
-    Continue (State.appendOutput (Types.ShowStatusLine status) machine)
+    Continue (State.appendOutput (Types.ShowStatusLine (StatusLine.build machine)) machine)
 
 
 
@@ -989,41 +941,7 @@ executeSread ops machine =
             , parseBufferAddr = parseBufAddr
             }
         )
-        (State.appendOutput (Types.ShowStatusLine (buildStatusLine machine)) machine)
-
-
-buildStatusLine : ZMachine -> Types.StatusLine
-buildStatusLine machine =
-    let
-        globalsAddr =
-            Header.globalVariablesAddress machine.memory
-
-        locationObj =
-            Memory.readWord globalsAddr machine.memory
-
-        locationName =
-            if locationObj == 0 then
-                ""
-
-            else
-                let
-                    propTableAddr =
-                        ObjectTable.propertyTableAddress locationObj machine.memory
-
-                    nameLen =
-                        Memory.readByte propTableAddr machine.memory
-                in
-                if nameLen == 0 then
-                    ""
-
-                else
-                    Tuple.first (Text.decodeZString (propTableAddr + 1) machine.memory)
-    in
-    { locationName = locationName
-    , score = toSignedInt16 (Memory.readWord (globalsAddr + Memory.wordLength) machine.memory)
-    , turns = Memory.readWord (globalsAddr + 2 * Memory.wordLength) machine.memory
-    , isTimeGame = Header.testFlag1 Header.StatusLineType machine.memory
-    }
+        (State.appendOutput (Types.ShowStatusLine (StatusLine.build machine)) machine)
 
 
 
@@ -1056,21 +974,11 @@ executeRandom instr ops machine =
             rs =
                 machine.randomState
 
-            -- Simple xorshift
-            s1 =
-                Bitwise.xor rs.seed (Bitwise.shiftLeftBy 13 rs.seed)
-
-            s2 =
-                Bitwise.xor s1 (Bitwise.shiftRightZfBy 17 s1)
-
-            s3 =
-                Bitwise.xor s2 (Bitwise.shiftLeftBy 5 s2)
-
-            newSeed =
-                Bitwise.and s3 0x7FFFFFFF
+            ( value, newSeed ) =
+                xorshift rs.seed
 
             result =
-                modBy range (abs newSeed) + 1
+                modBy range value + 1
         in
         storeResult instr result { machine | randomState = { seed = newSeed, count = rs.count + 1 } }
 

@@ -118,7 +118,7 @@ handleResult result model =
             -- Step budget exhausted — yield to JS event loop, then resume
             let
                 text =
-                    formatOutput m.output
+                    formatOutput (ZMachine.getOutput m)
 
                 cleaned =
                     ZMachine.clearOutput m
@@ -130,7 +130,7 @@ handleResult result model =
         NeedInput req m ->
             let
                 text =
-                    formatOutput m.output
+                    formatOutput (ZMachine.getOutput m)
             in
             ( { model | machine = Just (ZMachine.clearOutput m), waitingForInput = Just req }
             , Cmd.batch [ output text, requestInput "" ]
@@ -139,7 +139,7 @@ handleResult result model =
         Halted m ->
             let
                 text =
-                    formatOutput m.output
+                    formatOutput (ZMachine.getOutput m)
             in
             ( { model | machine = Just m }
             , Cmd.batch [ output (text ++ "\n[Machine halted]"), requestInput "HALT" ]
@@ -148,7 +148,7 @@ handleResult result model =
         Error err m ->
             let
                 text =
-                    formatOutput m.output
+                    formatOutput (ZMachine.getOutput m)
             in
             ( { model | machine = Just m }
             , errorOccurred (text ++ "\n[Error: " ++ errorToString err ++ "]")

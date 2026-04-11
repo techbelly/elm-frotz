@@ -62,11 +62,16 @@ provideInput input request machine =
             Continue { machine | memory = mem }
 
 
-{-| Get all pending output events.
+{-| Get all pending output events, in chronological order.
+
+Events are stored newest-first internally (so `appendOutput` is O(1));
+this reverses them on read. Consumers that touch `machine.output`
+directly will see the reversed order — use this accessor instead.
+
 -}
 getOutput : ZMachine -> List ZMachine.Types.OutputEvent
 getOutput machine =
-    machine.output
+    List.reverse machine.output
 
 
 {-| Clear pending output events.

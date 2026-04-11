@@ -8,6 +8,7 @@ import Test exposing (Test, describe, test)
 import ZMachine.Execute as Execute
 import ZMachine.Instruction exposing (VariableRef(..))
 import ZMachine.Memory as Memory
+import ZMachine.Run as Run
 import ZMachine.State as State
 import ZMachine.Types
     exposing
@@ -116,7 +117,7 @@ makeZMWithGlobal globalNum value instrBytes =
 
 getOutputText : ZMachine -> String
 getOutputText zm =
-    zm.output
+    Run.getOutput zm
         |> List.filterMap
             (\event ->
                 case event of

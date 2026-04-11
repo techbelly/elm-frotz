@@ -80,21 +80,22 @@ readVariable ref machine =
 
 
 {-| Write a value to a variable. Variable 0 = push stack, 1-15 = locals, 16-255 = globals.
+
+Normalization into the 0..65535 range is handled by the underlying
+primitives (`pushStack`, `Stack.setLocal`, `Memory.writeWord`), so
+callers may pass signed or oversized values directly.
+
 -}
 writeVariable : VariableRef -> Int -> ZMachine -> ZMachine
 writeVariable ref value machine =
-    let
-        val =
-            toUnsignedInt16 value
-    in
     case ref of
         Stack ->
-            pushStack val machine
+            pushStack value machine
 
         Local n ->
             case machine.callStack of
                 frame :: rest ->
-                    { machine | callStack = ZMachine.Stack.setLocal n val frame :: rest }
+                    { machine | callStack = ZMachine.Stack.setLocal n value frame :: rest }
 
                 [] ->
                     machine
@@ -107,7 +108,7 @@ writeVariable ref value machine =
                 addr =
                     globalsAddr + (n - 0x10) * Memory.wordLength
             in
-            { machine | memory = Memory.writeWord addr val machine.memory }
+            { machine | memory = Memory.writeWord addr value machine.memory }
 
 
 {-| Push a value onto the evaluation stack.
@@ -159,8 +160,13 @@ pokeStack value machine =
 
 
 {-| Append an output event.
+
+Events are stored newest-first so that appending is O(1); call
+[`ZMachine.Run.getOutput`](ZMachine-Run#getOutput) to retrieve them in
+chronological order.
+
 -}
 appendOutput : OutputEvent -> ZMachine -> ZMachine
 appendOutput event machine =
-    { machine | output = machine.output ++ [ event ] }
+    { machine | output = event :: machine.output }
 

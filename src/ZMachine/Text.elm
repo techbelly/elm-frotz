@@ -206,13 +206,13 @@ readZWords addr mem acc =
             Memory.readWord addr mem
 
         newAcc =
-            acc ++ [ word ]
+            word :: acc
 
         isEnd =
             Bitwise.and word 0x8000 /= 0
     in
     if isEnd then
-        ( newAcc, List.length newAcc * Memory.wordLength )
+        ( List.reverse newAcc, List.length newAcc * Memory.wordLength )
 
     else
         readZWords (addr + Memory.wordLength) mem newAcc

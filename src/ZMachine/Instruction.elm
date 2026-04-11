@@ -13,6 +13,7 @@ module ZMachine.Instruction exposing
     , storesResult
     , branches
     , hasText
+    , variableRefFromByte
     )
 
 {-| Z-Machine instruction decoder.
@@ -649,13 +650,13 @@ decodeZWords pos mem acc =
             Memory.readWord pos mem
 
         newAcc =
-            acc ++ [ word ]
+            word :: acc
 
         isEnd =
             Bitwise.and word 0x8000 /= 0
     in
     if isEnd then
-        ( Just newAcc, pos + Memory.wordLength )
+        ( Just (List.reverse newAcc), pos + Memory.wordLength )
 
     else
         decodeZWords (pos + Memory.wordLength) mem newAcc
@@ -665,6 +666,9 @@ decodeZWords pos mem acc =
 -- VARIABLE REF
 
 
+{-| Decode a raw variable-reference byte into a [`VariableRef`](#VariableRef).
+`0` = evaluation stack, `1..15` = local, `16..255` = global.
+-}
 variableRefFromByte : Int -> VariableRef
 variableRefFromByte byte =
     if byte == 0 then

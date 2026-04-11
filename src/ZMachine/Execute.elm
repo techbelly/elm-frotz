@@ -10,6 +10,7 @@ Decodes and executes a single instruction, returning the resulting state.
 
 import Array
 import Bitwise
+import Library.IntExtra exposing (toSignedInt16, toUnsignedInt16, truncDiv, truncMod)
 import Library.ListExtra exposing (getAt)
 import ZMachine.Instruction as Inst
     exposing
@@ -23,8 +24,9 @@ import ZMachine.Instruction as Inst
         , Operand(..)
         , VariableRef(..)
         )
-import ZMachine.Memory as Memory exposing (Memory)
+import ZMachine.Memory as Memory
 import ZMachine.Header as Header
+import ZMachine.ObjectTable as ObjectTable
 import ZMachine.State as State
 import ZMachine.Text as Text
 import ZMachine.Types as Types
@@ -100,10 +102,10 @@ execute instr nextPC ops machine =
             executeJe instr ops m
 
         Op2 Jl ->
-            executeBranch instr (toSigned (getOp 0 ops) < toSigned (getOp 1 ops)) m
+            executeBranch instr (toSignedInt16 (getOp 0 ops) < toSignedInt16 (getOp 1 ops)) m
 
         Op2 Jg ->
-            executeBranch instr (toSigned (getOp 0 ops) > toSigned (getOp 1 ops)) m
+            executeBranch instr (toSignedInt16 (getOp 0 ops) > toSignedInt16 (getOp 1 ops)) m
 
         Op2 DecChk ->
             executeDecChk instr ops m
@@ -169,27 +171,27 @@ execute instr nextPC ops machine =
             executeGetNextProp instr ops m
 
         Op2 Add ->
-            storeResult instr (toUnsigned (toSigned (getOp 0 ops) + toSigned (getOp 1 ops))) m
+            storeResult instr (toUnsignedInt16 (toSignedInt16 (getOp 0 ops) + toSignedInt16 (getOp 1 ops))) m
 
         Op2 Sub ->
-            storeResult instr (toUnsigned (toSigned (getOp 0 ops) - toSigned (getOp 1 ops))) m
+            storeResult instr (toUnsignedInt16 (toSignedInt16 (getOp 0 ops) - toSignedInt16 (getOp 1 ops))) m
 
         Op2 Mul ->
-            storeResult instr (toUnsigned (toSigned (getOp 0 ops) * toSigned (getOp 1 ops))) m
+            storeResult instr (toUnsignedInt16 (toSignedInt16 (getOp 0 ops) * toSignedInt16 (getOp 1 ops))) m
 
         Op2 Div ->
             if getOp 1 ops == 0 then
                 Error DivisionByZero m
 
             else
-                storeResult instr (toUnsigned (truncDiv (toSigned (getOp 0 ops)) (toSigned (getOp 1 ops)))) m
+                storeResult instr (toUnsignedInt16 (truncDiv (toSignedInt16 (getOp 0 ops)) (toSignedInt16 (getOp 1 ops)))) m
 
         Op2 Mod ->
             if getOp 1 ops == 0 then
                 Error DivisionByZero m
 
             else
-                storeResult instr (toUnsigned (truncMod (toSigned (getOp 0 ops)) (toSigned (getOp 1 ops)))) m
+                storeResult instr (toUnsignedInt16 (truncMod (toSignedInt16 (getOp 0 ops)) (toSignedInt16 (getOp 1 ops)))) m
 
         Op2 (Inst.Unknown2Op n) ->
             Error (InvalidOpcode n) m
@@ -218,7 +220,7 @@ execute instr nextPC ops machine =
                 ( current, m2 ) =
                     readIndirect byte m
             in
-            Continue (writeIndirect byte (toUnsigned (toSigned current + 1)) m2)
+            Continue (writeIndirect byte (toUnsignedInt16 (toSignedInt16 current + 1)) m2)
 
         Op1 Dec ->
             let
@@ -228,7 +230,7 @@ execute instr nextPC ops machine =
                 ( current, m2 ) =
                     readIndirect byte m
             in
-            Continue (writeIndirect byte (toUnsigned (toSigned current - 1)) m2)
+            Continue (writeIndirect byte (toUnsignedInt16 (toSignedInt16 current - 1)) m2)
 
         Op1 PrintAddr ->
             let
@@ -252,7 +254,7 @@ execute instr nextPC ops machine =
         Op1 Jump ->
             let
                 offset =
-                    toSigned (getOp 0 ops)
+                    toSignedInt16 (getOp 0 ops)
             in
             Continue { m | pc = m.pc + offset - 2 }
 
@@ -414,7 +416,7 @@ execute instr nextPC ops machine =
         OpVar PrintNum ->
             let
                 num =
-                    toSigned (getOp 0 ops)
+                    toSignedInt16 (getOp 0 ops)
             in
             Continue (State.appendOutput (Types.PrintText (String.fromInt num)) m)
 
@@ -452,7 +454,7 @@ execute instr nextPC ops machine =
             -- Minimal: just track stream 2 (transcript) toggle
             let
                 streamNum =
-                    toSigned (getOp 0 ops)
+                    toSignedInt16 (getOp 0 ops)
             in
             if streamNum == 2 then
                 let
@@ -516,7 +518,7 @@ storeResult : Instruction -> Int -> ZMachine -> StepResult
 storeResult instr value machine =
     case instr.store of
         Just varRef ->
-            Continue (State.writeVariable varRef (toUnsigned value) machine)
+            Continue (State.writeVariable varRef (toUnsignedInt16 value) machine)
 
         Nothing ->
             Continue machine
@@ -597,7 +599,7 @@ executeReturn value machine =
             in
             case frame.returnStore of
                 Just varRef ->
-                    Continue (State.writeVariable varRef (toUnsigned value) m)
+                    Continue (State.writeVariable varRef (toUnsignedInt16 value) m)
 
                 Nothing ->
                     Continue m
@@ -637,16 +639,16 @@ executeDecChk instr ops machine =
             getOp 0 ops
 
         checkValue =
-            toSigned (getOp 1 ops)
+            toSignedInt16 (getOp 1 ops)
 
         ( current, m ) =
             readIndirect byte machine
 
         newValue =
-            toSigned current - 1
+            toSignedInt16 current - 1
 
         m2 =
-            writeIndirect byte (toUnsigned newValue) m
+            writeIndirect byte (toUnsignedInt16 newValue) m
     in
     executeBranch instr (newValue < checkValue) m2
 
@@ -658,16 +660,16 @@ executeIncChk instr ops machine =
             getOp 0 ops
 
         checkValue =
-            toSigned (getOp 1 ops)
+            toSignedInt16 (getOp 1 ops)
 
         ( current, m ) =
             readIndirect byte machine
 
         newValue =
-            toSigned current + 1
+            toSignedInt16 current + 1
 
         m2 =
-            writeIndirect byte (toUnsigned newValue) m
+            writeIndirect byte (toUnsignedInt16 newValue) m
     in
     executeBranch instr (newValue > checkValue) m2
 
@@ -686,7 +688,7 @@ executeJin instr ops machine =
             getOp 1 ops
 
         childParent =
-            readObjectParent child machine.memory
+            ObjectTable.parent child machine.memory
     in
     executeBranch instr (childParent == parent) machine
 
@@ -701,51 +703,25 @@ executeTestAttr instr ops machine =
             getOp 1 ops
 
         hasAttr =
-            testObjectAttribute obj attr machine.memory
+            ObjectTable.testAttribute obj attr machine.memory
     in
     executeBranch instr hasAttr machine
 
 
 executeSetAttr : List Int -> ZMachine -> StepResult
 executeSetAttr ops machine =
-    let
-        obj =
-            getOp 0 ops
-
-        attr =
-            getOp 1 ops
-
-        addr =
-            objectAddress obj machine.memory + (attr // 8)
-
-        byte =
-            Memory.readByte addr machine.memory
-
-        newByte =
-            Bitwise.or byte (Bitwise.shiftLeftBy (7 - modBy 8 attr) 1)
-    in
-    Continue { machine | memory = Memory.writeByte addr newByte machine.memory }
+    Continue
+        { machine
+            | memory = ObjectTable.setAttribute (getOp 0 ops) (getOp 1 ops) machine.memory
+        }
 
 
 executeClearAttr : List Int -> ZMachine -> StepResult
 executeClearAttr ops machine =
-    let
-        obj =
-            getOp 0 ops
-
-        attr =
-            getOp 1 ops
-
-        addr =
-            objectAddress obj machine.memory + (attr // 8)
-
-        byte =
-            Memory.readByte addr machine.memory
-
-        newByte =
-            Bitwise.and byte (Bitwise.complement (Bitwise.shiftLeftBy (7 - modBy 8 attr) 1))
-    in
-    Continue { machine | memory = Memory.writeByte addr newByte machine.memory }
+    Continue
+        { machine
+            | memory = ObjectTable.clearAttribute (getOp 0 ops) (getOp 1 ops) machine.memory
+        }
 
 
 executeInsertObj : List Int -> ZMachine -> StepResult
@@ -759,16 +735,16 @@ executeInsertObj ops machine =
 
         mem =
             machine.memory
-                |> removeObjectFromParent obj
+                |> ObjectTable.removeFromParent obj
                 |> (\m ->
                         let
                             destChild =
-                                readObjectChild dest m
+                                ObjectTable.child dest m
                         in
                         m
-                            |> writeObjectParent obj dest
-                            |> writeObjectSibling obj destChild
-                            |> writeObjectChild dest obj
+                            |> ObjectTable.setParent obj dest
+                            |> ObjectTable.setSibling obj destChild
+                            |> ObjectTable.setChild dest obj
                    )
     in
     Continue { machine | memory = mem }
@@ -781,9 +757,9 @@ executeRemoveObj ops machine =
             getOp 0 ops
 
         mem =
-            removeObjectFromParent obj machine.memory
-                |> writeObjectParent obj 0
-                |> writeObjectSibling obj 0
+            ObjectTable.removeFromParent obj machine.memory
+                |> ObjectTable.setParent obj 0
+                |> ObjectTable.setSibling obj 0
     in
     Continue { machine | memory = mem }
 
@@ -792,7 +768,7 @@ executeGetSibling : Instruction -> List Int -> ZMachine -> StepResult
 executeGetSibling instr ops machine =
     let
         sibling =
-            readObjectSibling (getOp 0 ops) machine.memory
+            ObjectTable.sibling (getOp 0 ops) machine.memory
 
         m =
             case instr.store of
@@ -809,7 +785,7 @@ executeGetChild : Instruction -> List Int -> ZMachine -> StepResult
 executeGetChild instr ops machine =
     let
         child =
-            readObjectChild (getOp 0 ops) machine.memory
+            ObjectTable.child (getOp 0 ops) machine.memory
 
         m =
             case instr.store of
@@ -824,32 +800,12 @@ executeGetChild instr ops machine =
 
 executeGetParent : Instruction -> List Int -> ZMachine -> StepResult
 executeGetParent instr ops machine =
-    let
-        parent =
-            readObjectParent (getOp 0 ops) machine.memory
-    in
-    storeResult instr parent machine
+    storeResult instr (ObjectTable.parent (getOp 0 ops) machine.memory) machine
 
 
 executeGetPropLen : Instruction -> List Int -> ZMachine -> StepResult
 executeGetPropLen instr ops machine =
-    let
-        propDataAddr =
-            getOp 0 ops
-
-        len =
-            if propDataAddr == 0 then
-                0
-
-            else
-                -- The size byte is the byte *before* the property data
-                let
-                    sizeByte =
-                        Memory.readByte (propDataAddr - 1) machine.memory
-                in
-                Bitwise.shiftRightZfBy 5 sizeByte + 1
-    in
-    storeResult instr len machine
+    storeResult instr (ObjectTable.propertyLength (getOp 0 ops) machine.memory) machine
 
 
 executeGetProp : Instruction -> List Int -> ZMachine -> StepResult
@@ -860,11 +816,8 @@ executeGetProp instr ops machine =
 
         propNum =
             getOp 1 ops
-
-        result =
-            findProperty obj propNum machine.memory
     in
-    case result of
+    case ObjectTable.findProperty obj propNum machine.memory of
         Just ( dataAddr, dataLen ) ->
             let
                 val =
@@ -877,15 +830,7 @@ executeGetProp instr ops machine =
             storeResult instr val machine
 
         Nothing ->
-            -- Return default value
-            let
-                tableBase =
-                    Header.objectTableAddress machine.memory
-
-                defaultVal =
-                    Memory.readWord (tableBase + (propNum - 1) * Memory.wordLength) machine.memory
-            in
-            storeResult instr defaultVal machine
+            storeResult instr (ObjectTable.propertyDefault propNum machine.memory) machine
 
 
 executeGetPropAddr : Instruction -> List Int -> ZMachine -> StepResult
@@ -896,11 +841,8 @@ executeGetPropAddr instr ops machine =
 
         propNum =
             getOp 1 ops
-
-        result =
-            findProperty obj propNum machine.memory
     in
-    case result of
+    case ObjectTable.findProperty obj propNum machine.memory of
         Just ( dataAddr, _ ) ->
             storeResult instr dataAddr machine
 
@@ -910,38 +852,9 @@ executeGetPropAddr instr ops machine =
 
 executeGetNextProp : Instruction -> List Int -> ZMachine -> StepResult
 executeGetNextProp instr ops machine =
-    let
-        obj =
-            getOp 0 ops
-
-        propNum =
-            getOp 1 ops
-
-        propTableAddr =
-            readObjectPropTableAddr obj machine.memory
-
-        -- Skip the short name header
-        nameLen =
-            Memory.readByte propTableAddr machine.memory
-
-        firstPropAddr =
-            propTableAddr + 1 + nameLen * Memory.wordLength
-    in
-    if propNum == 0 then
-        -- Return number of first property
-        let
-            sizeByte =
-                Memory.readByte firstPropAddr machine.memory
-        in
-        storeResult instr (Bitwise.and sizeByte 0x1F) machine
-
-    else
-        -- Find propNum, then return the number of the one after it
-        let
-            nextNum =
-                findNextPropertyNumber firstPropAddr propNum machine.memory
-        in
-        storeResult instr nextNum machine
+    storeResult instr
+        (ObjectTable.nextPropertyNumber (getOp 0 ops) (getOp 1 ops) machine.memory)
+        machine
 
 
 executePutProp : List Int -> ZMachine -> StepResult
@@ -952,11 +865,8 @@ executePutProp ops machine =
 
         propNum =
             getOp 1 ops
-
-        result =
-            findProperty obj propNum machine.memory
     in
-    case result of
+    case ObjectTable.findProperty obj propNum machine.memory of
         Just ( dataAddr, dataLen ) ->
             let
                 value =
@@ -979,11 +889,8 @@ executePutProp ops machine =
 executePrintObj : List Int -> ZMachine -> StepResult
 executePrintObj ops machine =
     let
-        obj =
-            getOp 0 ops
-
         propTableAddr =
-            readObjectPropTableAddr obj machine.memory
+            ObjectTable.propertyTableAddress (getOp 0 ops) machine.memory
 
         nameLen =
             Memory.readByte propTableAddr machine.memory
@@ -1018,7 +925,7 @@ executeShowStatus machine =
 
         -- Global 1 (var 0x11) = score or hours
         scoreOrHours =
-            toSigned (Memory.readWord (globalsAddr + Memory.wordLength) machine.memory)
+            toSignedInt16 (Memory.readWord (globalsAddr + Memory.wordLength) machine.memory)
 
         -- Global 2 (var 0x12) = turns or minutes
         turnsOrMinutes =
@@ -1034,7 +941,7 @@ executeShowStatus machine =
             else
                 let
                     propTableAddr =
-                        readObjectPropTableAddr locationObj machine.memory
+                        ObjectTable.propertyTableAddress locationObj machine.memory
 
                     nameLen =
                         Memory.readByte propTableAddr machine.memory
@@ -1101,7 +1008,7 @@ buildStatusLine machine =
             else
                 let
                     propTableAddr =
-                        readObjectPropTableAddr locationObj machine.memory
+                        ObjectTable.propertyTableAddress locationObj machine.memory
 
                     nameLen =
                         Memory.readByte propTableAddr machine.memory
@@ -1113,7 +1020,7 @@ buildStatusLine machine =
                     Tuple.first (Text.decodeZString (propTableAddr + 1) machine.memory)
     in
     { locationName = locationName
-    , score = toSigned (Memory.readWord (globalsAddr + Memory.wordLength) machine.memory)
+    , score = toSignedInt16 (Memory.readWord (globalsAddr + Memory.wordLength) machine.memory)
     , turns = Memory.readWord (globalsAddr + 2 * Memory.wordLength) machine.memory
     , isTimeGame = Header.testFlag1 Header.StatusLineType machine.memory
     }
@@ -1127,7 +1034,7 @@ executeRandom : Instruction -> List Int -> ZMachine -> StepResult
 executeRandom instr ops machine =
     let
         range =
-            toSigned (getOp 0 ops)
+            toSignedInt16 (getOp 0 ops)
     in
     if range <= 0 then
         -- Seed the RNG
@@ -1166,268 +1073,6 @@ executeRandom instr ops machine =
                 modBy range (abs newSeed) + 1
         in
         storeResult instr result { machine | randomState = { seed = newSeed, count = rs.count + 1 } }
-
-
-
--- OBJECT TABLE HELPERS
-
-
-objectAddress : Int -> Memory -> Int
-objectAddress objNum mem =
-    let
-        tableBase =
-            Header.objectTableAddress mem
-
-        defaultsSize =
-            31 * Memory.wordLength
-    in
-    tableBase + defaultsSize + (objNum - 1) * 9
-
-
-readObjectParent : Int -> Memory -> Int
-readObjectParent objNum mem =
-    if objNum == 0 then
-        0
-
-    else
-        Memory.readByte (objectAddress objNum mem + 4) mem
-
-
-readObjectSibling : Int -> Memory -> Int
-readObjectSibling objNum mem =
-    if objNum == 0 then
-        0
-
-    else
-        Memory.readByte (objectAddress objNum mem + 5) mem
-
-
-readObjectChild : Int -> Memory -> Int
-readObjectChild objNum mem =
-    if objNum == 0 then
-        0
-
-    else
-        Memory.readByte (objectAddress objNum mem + 6) mem
-
-
-writeObjectParent : Int -> Int -> Memory -> Memory
-writeObjectParent objNum value mem =
-    if objNum == 0 then
-        mem
-
-    else
-        Memory.writeByte (objectAddress objNum mem + 4) value mem
-
-
-writeObjectSibling : Int -> Int -> Memory -> Memory
-writeObjectSibling objNum value mem =
-    if objNum == 0 then
-        mem
-
-    else
-        Memory.writeByte (objectAddress objNum mem + 5) value mem
-
-
-writeObjectChild : Int -> Int -> Memory -> Memory
-writeObjectChild objNum value mem =
-    if objNum == 0 then
-        mem
-
-    else
-        Memory.writeByte (objectAddress objNum mem + 6) value mem
-
-
-readObjectPropTableAddr : Int -> Memory -> Int
-readObjectPropTableAddr objNum mem =
-    if objNum == 0 then
-        0
-
-    else
-        Memory.readWord (objectAddress objNum mem + 7) mem
-
-
-testObjectAttribute : Int -> Int -> Memory -> Bool
-testObjectAttribute objNum attr mem =
-    if objNum == 0 then
-        False
-
-    else
-        let
-            addr =
-                objectAddress objNum mem + (attr // 8)
-
-            byte =
-                Memory.readByte addr mem
-
-            bitIndex =
-                7 - modBy 8 attr
-        in
-        Bitwise.and byte (Bitwise.shiftLeftBy bitIndex 1) /= 0
-
-
-removeObjectFromParent : Int -> Memory -> Memory
-removeObjectFromParent objNum mem =
-    let
-        parent =
-            readObjectParent objNum mem
-    in
-    if parent == 0 then
-        mem
-
-    else
-        let
-            parentChild =
-                readObjectChild parent mem
-        in
-        if parentChild == objNum then
-            -- Object is the first child — parent's child becomes object's sibling
-            let
-                sibling =
-                    readObjectSibling objNum mem
-            in
-            writeObjectChild parent sibling mem
-
-        else
-            -- Walk the sibling chain to find the one before this object
-            removeSiblingFromChain parentChild objNum mem
-
-
-removeSiblingFromChain : Int -> Int -> Memory -> Memory
-removeSiblingFromChain current target mem =
-    if current == 0 then
-        mem
-
-    else
-        let
-            sibling =
-                readObjectSibling current mem
-        in
-        if sibling == target then
-            writeObjectSibling current (readObjectSibling target mem) mem
-
-        else
-            removeSiblingFromChain sibling target mem
-
-
-
--- PROPERTY HELPERS
-
-
-{-| Find a property on an object. Returns (dataAddress, dataLength) or Nothing.
--}
-findProperty : Int -> Int -> Memory -> Maybe ( Int, Int )
-findProperty objNum propNum mem =
-    let
-        propTableAddr =
-            readObjectPropTableAddr objNum mem
-
-        nameLen =
-            Memory.readByte propTableAddr mem
-
-        firstPropAddr =
-            propTableAddr + 1 + nameLen * Memory.wordLength
-    in
-    findPropertyAt firstPropAddr propNum mem
-
-
-findPropertyAt : Int -> Int -> Memory -> Maybe ( Int, Int )
-findPropertyAt addr propNum mem =
-    let
-        sizeByte =
-            Memory.readByte addr mem
-    in
-    if sizeByte == 0 then
-        Nothing
-
-    else
-        let
-            num =
-                Bitwise.and sizeByte 0x1F
-
-            dataLen =
-                Bitwise.shiftRightZfBy 5 sizeByte + 1
-
-            dataAddr =
-                addr + 1
-        in
-        if num == propNum then
-            Just ( dataAddr, dataLen )
-
-        else if num < propNum then
-            -- Properties are in descending order; we've passed it
-            Nothing
-
-        else
-            findPropertyAt (dataAddr + dataLen) propNum mem
-
-
-findNextPropertyNumber : Int -> Int -> Memory -> Int
-findNextPropertyNumber addr targetPropNum mem =
-    let
-        sizeByte =
-            Memory.readByte addr mem
-    in
-    if sizeByte == 0 then
-        0
-
-    else
-        let
-            num =
-                Bitwise.and sizeByte 0x1F
-
-            dataLen =
-                Bitwise.shiftRightZfBy 5 sizeByte + 1
-
-            nextAddr =
-                addr + 1 + dataLen
-        in
-        if num == targetPropNum then
-            -- Return the number of the next property
-            let
-                nextSizeByte =
-                    Memory.readByte nextAddr mem
-            in
-            Bitwise.and nextSizeByte 0x1F
-
-        else
-            findNextPropertyNumber nextAddr targetPropNum mem
-
-
-
--- ARITHMETIC HELPERS
-
-
-toSigned : Int -> Int
-toSigned n =
-    if n > 32767 then
-        n - 65536
-
-    else
-        n
-
-
-toUnsigned : Int -> Int
-toUnsigned n =
-    Bitwise.and n 0xFFFF
-
-
-truncDiv : Int -> Int -> Int
-truncDiv a b =
-    let
-        result =
-            toFloat a / toFloat b
-    in
-    if result < 0 then
-        ceiling result
-
-    else
-        floor result
-
-
-truncMod : Int -> Int -> Int
-truncMod a b =
-    a - truncDiv a b * b
 
 
 

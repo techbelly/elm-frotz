@@ -1,4 +1,4 @@
-module ZMachine.Stack exposing (CallFrame, newFrame, getLocal, setLocal)
+module ZMachine.Stack exposing (CallFrame, getLocal, setLocal)
 
 {-| Call stack frame management for the Z-Machine.
 
@@ -6,11 +6,12 @@ Each routine call creates a `CallFrame` that captures the return address,
 where to store the return value, the routine's local variables, and the
 evaluation stack at the point of the call.
 
-@docs CallFrame, newFrame, getLocal, setLocal
+@docs CallFrame, getLocal, setLocal
 
 -}
 
 import Array exposing (Array)
+import Library.IntExtra exposing (toUnsignedInt16)
 import ZMachine.Instruction exposing (VariableRef)
 
 
@@ -21,24 +22,6 @@ type alias CallFrame =
     , returnStore : Maybe VariableRef
     , locals : Array Int
     , evalStack : List Int
-    }
-
-
-{-| Create a new call frame with the given number of locals and initial values.
--}
-newFrame : Int -> List Int -> Int -> Maybe VariableRef -> List Int -> CallFrame
-newFrame numLocals initialValues returnPC returnStore currentEvalStack =
-    let
-        locals =
-            initialValues
-                |> List.take numLocals
-                |> Array.fromList
-                |> padArray numLocals 0
-    in
-    { returnPC = returnPC
-    , returnStore = returnStore
-    , locals = locals
-    , evalStack = currentEvalStack
     }
 
 
@@ -54,28 +37,4 @@ getLocal n frame =
 -}
 setLocal : Int -> Int -> CallFrame -> CallFrame
 setLocal n value frame =
-    { frame | locals = Array.set (n - 1) (toUnsigned16 value) frame.locals }
-
-
-
--- INTERNAL
-
-
-padArray : Int -> a -> Array a -> Array a
-padArray targetLength default arr =
-    if Array.length arr >= targetLength then
-        arr
-
-    else
-        padArray targetLength default (Array.push default arr)
-
-
-toUnsigned16 : Int -> Int
-toUnsigned16 n =
-    modBy 65536
-        (if n < 0 then
-            n + 65536
-
-         else
-            n
-        )
+    { frame | locals = Array.set (n - 1) (toUnsignedInt16 value) frame.locals }

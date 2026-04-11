@@ -8,6 +8,7 @@ Decodes and executes a single instruction, returning the resulting state.
 
 -}
 
+import Array
 import Bitwise
 import Library.ListExtra exposing (getAt)
 import ZMachine.Instruction as Inst
@@ -24,7 +25,6 @@ import ZMachine.Instruction as Inst
         )
 import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Header as Header
-import ZMachine.Stack as Stack
 import ZMachine.State as State
 import ZMachine.Text as Text
 import ZMachine.Types as Types
@@ -569,7 +569,11 @@ executeCall instr addrOps args machine =
                 routineAddr + 1 + numLocals * Memory.wordLength
 
             frame =
-                Stack.newFrame numLocals localsWithArgs machine.pc instr.store machine.stack
+                { returnPC = machine.pc
+                , returnStore = instr.store
+                , locals = Array.fromList localsWithArgs
+                , evalStack = machine.stack
+                }
         in
         Continue
             { machine

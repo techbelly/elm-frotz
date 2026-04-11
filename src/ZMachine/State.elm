@@ -17,7 +17,7 @@ execution engine. Library consumers should use `ZMachine` and
 
 -}
 
-import Bitwise
+import Library.IntExtra exposing (toUnsignedInt16)
 import ZMachine.Instruction exposing (VariableRef(..))
 import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Header as Header
@@ -85,7 +85,7 @@ writeVariable : VariableRef -> Int -> ZMachine -> ZMachine
 writeVariable ref value machine =
     let
         val =
-            toUnsigned16 value
+            toUnsignedInt16 value
     in
     case ref of
         Stack ->
@@ -114,7 +114,7 @@ writeVariable ref value machine =
 -}
 pushStack : Int -> ZMachine -> ZMachine
 pushStack value machine =
-    { machine | stack = toUnsigned16 value :: machine.stack }
+    { machine | stack = toUnsignedInt16 value :: machine.stack }
 
 
 {-| Pop a value from the evaluation stack.
@@ -152,7 +152,7 @@ pokeStack : Int -> ZMachine -> ZMachine
 pokeStack value machine =
     case machine.stack of
         _ :: rest ->
-            { machine | stack = toUnsigned16 value :: rest }
+            { machine | stack = toUnsignedInt16 value :: rest }
 
         [] ->
             machine
@@ -164,11 +164,3 @@ appendOutput : OutputEvent -> ZMachine -> ZMachine
 appendOutput event machine =
     { machine | output = machine.output ++ [ event ] }
 
-
-
--- INTERNAL
-
-
-toUnsigned16 : Int -> Int
-toUnsigned16 n =
-    Bitwise.and n 0xFFFF

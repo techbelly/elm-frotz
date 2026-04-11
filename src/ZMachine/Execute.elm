@@ -22,6 +22,8 @@ import Library.IntExtra
         )
 import Library.ListExtra exposing (getAt)
 import ZMachine.Decode as Decode
+import ZMachine.Memory as Memory
+import ZMachine.ObjectTable as ObjectTable
 import ZMachine.Opcode as Opcode
     exposing
         ( BranchTarget(..)
@@ -34,8 +36,6 @@ import ZMachine.Opcode as Opcode
         , Operand(..)
         , variableRefFromByte
         )
-import ZMachine.Memory as Memory
-import ZMachine.ObjectTable as ObjectTable
 import ZMachine.State as State
 import ZMachine.StatusLine as StatusLine
 import ZMachine.Text as Text
@@ -109,6 +109,15 @@ execute instr nextPC ops machine =
     let
         m =
             { machine | pc = nextPC }
+
+        arg0 =
+            operandAt 0 ops
+
+        arg1 =
+            operandAt 1 ops
+
+        arg2 =
+            operandAt 2 ops
     in
     case instr.opcode of
         -- 2OP
@@ -116,35 +125,28 @@ execute instr nextPC ops machine =
             executeJe instr ops m
 
         Op2 Jl ->
-            executeBranch instr (toSignedInt16 (operandAt 0 ops) < toSignedInt16 (operandAt 1 ops)) m
+            executeBranch instr (toSignedInt16 arg0 < toSignedInt16 arg1) m
 
         Op2 Jg ->
-            executeBranch instr (toSignedInt16 (operandAt 0 ops) > toSignedInt16 (operandAt 1 ops)) m
+            executeBranch instr (toSignedInt16 arg0 > toSignedInt16 arg1) m
 
         Op2 DecChk ->
-            executeCheckedStep -1 (<) instr ops m
+            executeIncDecCheck -1 (<) instr ops m
 
         Op2 IncChk ->
-            executeCheckedStep 1 (>) instr ops m
+            executeIncDecCheck 1 (>) instr ops m
 
         Op2 Jin ->
             executeJin instr ops m
 
         Op2 Test ->
-            let
-                bitmap =
-                    operandAt 0 ops
-
-                flags =
-                    operandAt 1 ops
-            in
-            executeBranch instr (Bitwise.and bitmap flags == flags) m
+            executeBranch instr (Bitwise.and arg0 arg1 == arg1) m
 
         Op2 Or ->
-            storeResult instr (Bitwise.or (operandAt 0 ops) (operandAt 1 ops)) m
+            storeResult instr (Bitwise.or arg0 arg1) m
 
         Op2 And ->
-            storeResult instr (Bitwise.and (operandAt 0 ops) (operandAt 1 ops)) m
+            storeResult instr (Bitwise.and arg0 arg1) m
 
         Op2 TestAttr ->
             executeTestAttr instr ops m
@@ -156,24 +158,16 @@ execute instr nextPC ops machine =
             executeAttrUpdate ObjectTable.clearAttribute ops m
 
         Op2 Store ->
-            Continue (writeIndirect (operandAt 0 ops) (operandAt 1 ops) m)
+            Continue (writeIndirect arg0 arg1 m)
 
         Op2 InsertObj ->
             executeInsertObj ops m
 
         Op2 Loadw ->
-            let
-                addr =
-                    operandAt 0 ops + Memory.wordLength * operandAt 1 ops
-            in
-            storeResult instr (Memory.readWord addr m.memory) m
+            storeResult instr (Memory.readWord (arg0 + Memory.wordLength * arg1) m.memory) m
 
         Op2 Loadb ->
-            let
-                addr =
-                    operandAt 0 ops + operandAt 1 ops
-            in
-            storeResult instr (Memory.readByte addr m.memory) m
+            storeResult instr (Memory.readByte (arg0 + arg1) m.memory) m
 
         Op2 GetProp ->
             executeGetProp instr ops m
@@ -185,34 +179,34 @@ execute instr nextPC ops machine =
             executeGetNextProp instr ops m
 
         Op2 Add ->
-            storeResult instr (addInt16 (operandAt 0 ops) (operandAt 1 ops)) m
+            storeResult instr (addInt16 arg0 arg1) m
 
         Op2 Sub ->
-            storeResult instr (subInt16 (operandAt 0 ops) (operandAt 1 ops)) m
+            storeResult instr (subInt16 arg0 arg1) m
 
         Op2 Mul ->
-            storeResult instr (mulInt16 (operandAt 0 ops) (operandAt 1 ops)) m
+            storeResult instr (mulInt16 arg0 arg1) m
 
         Op2 Div ->
-            if operandAt 1 ops == 0 then
+            if arg1 == 0 then
                 Error DivisionByZero m
 
             else
-                storeResult instr (divInt16 (operandAt 0 ops) (operandAt 1 ops)) m
+                storeResult instr (divInt16 arg0 arg1) m
 
         Op2 Mod ->
-            if operandAt 1 ops == 0 then
+            if arg1 == 0 then
                 Error DivisionByZero m
 
             else
-                storeResult instr (modInt16 (operandAt 0 ops) (operandAt 1 ops)) m
+                storeResult instr (modInt16 arg0 arg1) m
 
         Op2 (Opcode.Unknown2Op n) ->
             Error (InvalidOpcode n) m
 
         -- 1OP
         Op1 Jz ->
-            executeBranch instr (operandAt 0 ops == 0) m
+            executeBranch instr (arg0 == 0) m
 
         Op1 GetSibling ->
             executeGetTreeLink ObjectTable.sibling instr ops m
@@ -227,20 +221,20 @@ execute instr nextPC ops machine =
             executeGetPropLen instr ops m
 
         Op1 Inc ->
-            executeStep 1 ops m
+            executeIncDec 1 ops m
 
         Op1 Dec ->
-            executeStep -1 ops m
+            executeIncDec -1 ops m
 
         Op1 PrintAddr ->
             let
                 ( str, _ ) =
-                    Text.decodeZString (operandAt 0 ops) m.memory
+                    Text.decodeZString arg0 m.memory
             in
             Continue (State.appendOutput (Types.PrintText str) m)
 
         Op1 CallS1 ->
-            executeCall instr [ operandAt 0 ops ] [] m
+            executeCall instr arg0 [] m
 
         Op1 RemoveObj ->
             executeRemoveObj ops m
@@ -249,34 +243,27 @@ execute instr nextPC ops machine =
             executePrintObj ops m
 
         Op1 Ret ->
-            executeReturn (operandAt 0 ops) m
+            executeReturn arg0 m
 
         Op1 Jump ->
-            let
-                offset =
-                    toSignedInt16 (operandAt 0 ops)
-            in
-            Continue { m | pc = m.pc + offset - 2 }
+            Continue { m | pc = m.pc + toSignedInt16 arg0 - 2 }
 
         Op1 PrintPaddr ->
             let
-                addr =
-                    Memory.unpackAddress (operandAt 0 ops)
-
                 ( str, _ ) =
-                    Text.decodeZString addr m.memory
+                    Text.decodeZString (Memory.unpackAddress arg0) m.memory
             in
             Continue (State.appendOutput (Types.PrintText str) m)
 
         Op1 Load ->
             let
                 ( val, m2 ) =
-                    readIndirect (operandAt 0 ops) m
+                    readIndirect arg0 m
             in
             storeResult instr val m2
 
         Op1 Not ->
-            storeResult instr (Bitwise.and (Bitwise.complement (operandAt 0 ops)) 0xFFFF) m
+            storeResult instr (Bitwise.and (Bitwise.complement arg0) 0xFFFF) m
 
         Op1 (Opcode.Unknown1Op n) ->
             Error (InvalidOpcode n) m
@@ -371,34 +358,13 @@ execute instr nextPC ops machine =
 
         -- VAR
         OpVar Call ->
-            let
-                routineAddr =
-                    operandAt 0 ops
-
-                args =
-                    List.drop 1 ops
-            in
-            executeCall instr [ routineAddr ] args m
+            executeCall instr arg0 (List.drop 1 ops) m
 
         OpVar Storew ->
-            let
-                addr =
-                    operandAt 0 ops + Memory.wordLength * operandAt 1 ops
-
-                val =
-                    operandAt 2 ops
-            in
-            Continue { m | memory = Memory.writeWord addr val m.memory }
+            Continue { m | memory = Memory.writeWord (arg0 + Memory.wordLength * arg1) arg2 m.memory }
 
         OpVar Storeb ->
-            let
-                addr =
-                    operandAt 0 ops + operandAt 1 ops
-
-                val =
-                    operandAt 2 ops
-            in
-            Continue { m | memory = Memory.writeByte addr val m.memory }
+            Continue { m | memory = Memory.writeByte (arg0 + arg1) arg2 m.memory }
 
         OpVar PutProp ->
             executePutProp ops m
@@ -407,42 +373,31 @@ execute instr nextPC ops machine =
             executeSread ops m
 
         OpVar PrintChar ->
-            let
-                ch =
-                    Text.zsciiToChar (operandAt 0 ops)
-            in
-            Continue (State.appendOutput (Types.PrintText (String.fromChar ch)) m)
+            Continue (State.appendOutput (Types.PrintText (String.fromChar (Text.zsciiToChar arg0))) m)
 
         OpVar PrintNum ->
-            let
-                num =
-                    toSignedInt16 (operandAt 0 ops)
-            in
-            Continue (State.appendOutput (Types.PrintText (String.fromInt num)) m)
+            Continue (State.appendOutput (Types.PrintText (String.fromInt (toSignedInt16 arg0))) m)
 
         OpVar Random ->
             executeRandom instr ops m
 
         OpVar Push ->
-            Continue (State.pushStack (operandAt 0 ops) m)
+            Continue (State.pushStack arg0 m)
 
         OpVar Pull ->
             let
-                varNum =
-                    operandAt 0 ops
-
                 ( val, m2 ) =
                     State.popStack m
             in
-            Continue (writeIndirect varNum val m2)
+            Continue (writeIndirect arg0 val m2)
 
         OpVar SplitWindow ->
-            Continue (State.appendOutput (Types.SplitWindow (operandAt 0 ops)) m)
+            Continue (State.appendOutput (Types.SplitWindow arg0) m)
 
         OpVar SetWindow ->
             let
                 win =
-                    if operandAt 0 ops == 0 then
+                    if arg0 == 0 then
                         Types.Lower
 
                     else
@@ -454,21 +409,13 @@ execute instr nextPC ops machine =
             -- Minimal: just track stream 2 (transcript) toggle
             let
                 streamNum =
-                    toSignedInt16 (operandAt 0 ops)
+                    toSignedInt16 arg0
             in
             if streamNum == 2 then
-                let
-                    streams =
-                        m.outputStreams
-                in
-                Continue { m | outputStreams = { streams | stream2 = True } }
+                Continue (setStream2 True m)
 
             else if streamNum == -2 then
-                let
-                    streams =
-                        m.outputStreams
-                in
-                Continue { m | outputStreams = { streams | stream2 = False } }
+                Continue (setStream2 False m)
 
             else
                 Continue m
@@ -478,7 +425,7 @@ execute instr nextPC ops machine =
             Continue m
 
         OpVar SoundEffect ->
-            Continue (State.appendOutput (Types.PlaySound (operandAt 0 ops)) m)
+            Continue (State.appendOutput (Types.PlaySound arg0) m)
 
         OpVar (Opcode.UnknownVar n) ->
             Error (InvalidOpcode n) m
@@ -528,12 +475,8 @@ storeResult instr value machine =
 -- CALL / RETURN
 
 
-executeCall : Instruction -> List Int -> List Int -> ZMachine -> StepResult
-executeCall instr addrOps args machine =
-    let
-        packedAddr =
-            List.head addrOps |> Maybe.withDefault 0
-    in
+executeCall : Instruction -> Int -> List Int -> ZMachine -> StepResult
+executeCall instr packedAddr args machine =
     if packedAddr == 0 then
         -- Calling address 0 returns false
         storeResult instr 0 machine
@@ -638,8 +581,8 @@ adjustIndirect varNum delta machine =
     ( newValue, writeIndirect varNum newValue m )
 
 
-executeCheckedStep : Int -> (Int -> Int -> Bool) -> Instruction -> List Int -> ZMachine -> StepResult
-executeCheckedStep delta cmp instr ops machine =
+executeIncDecCheck : Int -> (Int -> Int -> Bool) -> Instruction -> List Int -> ZMachine -> StepResult
+executeIncDecCheck delta cmp instr ops machine =
     let
         checkValue =
             toSignedInt16 (operandAt 1 ops)
@@ -650,8 +593,8 @@ executeCheckedStep delta cmp instr ops machine =
     executeBranch instr (cmp newValue checkValue) m
 
 
-executeStep : Int -> List Int -> ZMachine -> StepResult
-executeStep delta ops machine =
+executeIncDec : Int -> List Int -> ZMachine -> StepResult
+executeIncDec delta ops machine =
     let
         ( _, m ) =
             adjustIndirect (operandAt 0 ops) delta machine
@@ -939,6 +882,17 @@ executeRandom instr ops machine =
 operandAt : Int -> List Int -> Int
 operandAt index ops =
     getAt index ops |> Maybe.withDefault 0
+
+
+{-| Toggle the transcript (stream 2) flag.
+-}
+setStream2 : Bool -> ZMachine -> ZMachine
+setStream2 enabled machine =
+    let
+        streams =
+            machine.outputStreams
+    in
+    { machine | outputStreams = { streams | stream2 = enabled } }
 
 
 {-| Walk both lists once to overwrite the leading `defaults` with `args`.

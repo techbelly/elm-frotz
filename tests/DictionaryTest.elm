@@ -240,11 +240,8 @@ lookupTests =
                     mem =
                         makeMemWithDict [ ',' ] [ "box", "open", "the" ]
 
-                    dictAddr =
-                        0x40
-
                     result =
-                        Dictionary.lookupWord "open" dictAddr mem
+                        Dictionary.lookupWord "open" mem
                 in
                 -- Should find it (nonzero address)
                 (result /= 0) |> Expect.equal True
@@ -254,11 +251,8 @@ lookupTests =
                     mem =
                         makeMemWithDict [ ',' ] [ "box", "open", "the" ]
 
-                    dictAddr =
-                        0x40
-
                     result =
-                        Dictionary.lookupWord "xyzzy" dictAddr mem
+                        Dictionary.lookupWord "xyzzy" mem
                 in
                 result |> Expect.equal 0
         , test "lookup is case-insensitive (encodeToZChars lowercases)" <|
@@ -267,14 +261,11 @@ lookupTests =
                     mem =
                         makeMemWithDict [] [ "hello" ]
 
-                    dictAddr =
-                        0x40
-
                     r1 =
-                        Dictionary.lookupWord "hello" dictAddr mem
+                        Dictionary.lookupWord "hello" mem
 
                     r2 =
-                        Dictionary.lookupWord "HELLO" dictAddr mem
+                        Dictionary.lookupWord "HELLO" mem
                 in
                 (r1 == r2 && r1 /= 0) |> Expect.equal True
         , test "words longer than 6 zchars match on first 6" <|
@@ -284,11 +275,8 @@ lookupTests =
                     mem =
                         makeMemWithDict [] [ "abcdef" ]
 
-                    dictAddr =
-                        0x40
-
                     result =
-                        Dictionary.lookupWord "abcdefgh" dictAddr mem
+                        Dictionary.lookupWord "abcdefgh" mem
                 in
                 (result /= 0) |> Expect.equal True
         ]

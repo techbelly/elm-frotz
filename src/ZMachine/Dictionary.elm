@@ -37,11 +37,8 @@ Returns the updated memory.
 tokenize : String -> Int -> Int -> Memory -> Memory
 tokenize input textBufAddr parseBufAddr mem =
     let
-        dictAddr =
-            Header.dictionaryAddress mem
-
         separators =
-            readSeparators dictAddr mem
+            readSeparators mem
 
         lowered =
             String.toLower input
@@ -63,7 +60,7 @@ tokenize input textBufAddr parseBufAddr mem =
                 |> List.take maxWords
                 |> List.map
                     (\token ->
-                        { dictAddr = lookupWord token.text dictAddr mem
+                        { dictAddr = lookupWord token.text mem
                         , textLength = token.length
                         , textPosition = token.position + 1
                         }
@@ -75,9 +72,12 @@ tokenize input textBufAddr parseBufAddr mem =
 {-| Look up a word in the dictionary. Returns the dictionary entry address,
 or 0 if not found.
 -}
-lookupWord : String -> Int -> Memory -> Int
-lookupWord word dictAddr mem =
+lookupWord : String -> Memory -> Int
+lookupWord word mem =
     let
+        dictAddr =
+            Header.dictionaryAddress mem
+
         -- Read dictionary header
         numSeparators =
             Memory.readByte dictAddr mem
@@ -176,11 +176,12 @@ splitIntoWords input separators =
 
 splitHelper : List Char -> List Char -> Int -> List Char -> List Token -> List Token
 splitHelper chars separators pos currentWord tokens =
-    case chars of
-        [] ->
-            -- Flush any remaining word
+    let
+        -- `tokens` with the current word appended (if any). Used by every
+        -- branch that ends the current word.
+        flushed =
             if List.isEmpty currentWord then
-                List.reverse tokens
+                tokens
 
             else
                 let
@@ -190,45 +191,20 @@ splitHelper chars separators pos currentWord tokens =
                     wordStart =
                         pos - List.length currentWord
                 in
-                List.reverse ({ text = word, position = wordStart, length = String.length word } :: tokens)
+                { text = word, position = wordStart, length = String.length word } :: tokens
+    in
+    case chars of
+        [] ->
+            List.reverse flushed
 
         ch :: rest ->
             if ch == ' ' then
                 -- Space: flush current word, skip the space
-                if List.isEmpty currentWord then
-                    splitHelper rest separators (pos + 1) [] tokens
-
-                else
-                    let
-                        word =
-                            String.fromList (List.reverse currentWord)
-
-                        wordStart =
-                            pos - List.length currentWord
-                    in
-                    splitHelper rest
-                        separators
-                        (pos + 1)
-                        []
-                        ({ text = word, position = wordStart, length = String.length word } :: tokens)
+                splitHelper rest separators (pos + 1) [] flushed
 
             else if List.member ch separators then
-                -- Separator: flush current word, then add separator as its own word
+                -- Separator: flush current word, then add separator as its own token
                 let
-                    flushed =
-                        if List.isEmpty currentWord then
-                            tokens
-
-                        else
-                            let
-                                word =
-                                    String.fromList (List.reverse currentWord)
-
-                                wordStart =
-                                    pos - List.length currentWord
-                            in
-                            { text = word, position = wordStart, length = String.length word } :: tokens
-
                     sepToken =
                         { text = String.fromChar ch, position = pos, length = 1 }
                 in
@@ -243,9 +219,12 @@ splitHelper chars separators pos currentWord tokens =
 -- INTERNAL: Dictionary separator reading
 
 
-readSeparators : Int -> Memory -> List Char
-readSeparators dictAddr mem =
+readSeparators : Memory -> List Char
+readSeparators mem =
     let
+        dictAddr =
+            Header.dictionaryAddress mem
+
         count =
             Memory.readByte dictAddr mem
     in

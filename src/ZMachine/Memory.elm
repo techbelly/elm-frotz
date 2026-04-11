@@ -11,6 +11,8 @@ module ZMachine.Memory exposing
     , dynamicSize
     , unpackAddress
     , wordLength
+    , replaceDynamic
+    , dynamicBytes
     )
 
 {-| Byte-addressable memory for the Z-Machine.
@@ -24,6 +26,7 @@ ignored, matching the spec requirement that they're illegal.
 @docs readByte, readWord, readSignedWord
 @docs writeByte, writeWord
 @docs readSlice, size, dynamicSize, unpackAddress, wordLength
+@docs replaceDynamic, dynamicBytes
 
 -}
 
@@ -31,6 +34,7 @@ import Array exposing (Array)
 import Bitwise
 import Bytes exposing (Bytes)
 import Bytes.Decode as Decode
+import Library.ArrayExtra as ArrayExtra
 import Library.BytesExtra as BytesExtra
 
 
@@ -195,6 +199,41 @@ wordLength =
 unpackAddress : Int -> Int
 unpackAddress packed =
     packed * wordLength
+
+
+{-| Extract a snapshot of the dynamic memory region as an `Array Int`.
+Used by the save/restore machinery to capture state that can later be
+fed back to [`replaceDynamic`](#replaceDynamic).
+-}
+dynamicBytes : Memory -> Array Int
+dynamicBytes (Memory mem) =
+    Array.slice 0 mem.staticBase mem.bytes
+
+
+{-| Replace the dynamic memory region (bytes 0..staticBase-1) with the
+given array. Fails if the array length doesn't match the dynamic memory
+size of the current story. The static/high memory region is left
+untouched, as is the `staticBase`/`fileLength` metadata.
+-}
+replaceDynamic : Array Int -> Memory -> Result String Memory
+replaceDynamic newDynamic (Memory mem) =
+    let
+        expected =
+            mem.staticBase
+
+        actual =
+            Array.length newDynamic
+    in
+    if actual /= expected then
+        Err
+            ("replaceDynamic: expected "
+                ++ String.fromInt expected
+                ++ " bytes, got "
+                ++ String.fromInt actual
+            )
+
+    else
+        Ok (Memory { mem | bytes = ArrayExtra.merge newDynamic mem.bytes })
 
 
 

@@ -91,6 +91,11 @@ update msg model =
                             handleResult other model
 
                 _ ->
+                    -- The harness does not yet implement file-backed save/restore;
+                    -- when a story executes the save/restore opcode the machine
+                    -- will surface NeedSave / NeedRestore through `handleResult`,
+                    -- which reports the failure branch via provideSaveResult False /
+                    -- provideRestoreResult Nothing.
                     ( model, errorOccurred "Input received but not waiting for input" )
 
         Resume ->
@@ -135,6 +140,14 @@ handleResult result model =
             ( { model | machine = Just (ZMachine.clearOutput m), waitingForInput = Just req }
             , Cmd.batch [ output text, requestInput "" ]
             )
+
+        NeedSave _ m ->
+            -- Harness has no file I/O wired up yet; report save as failed
+            -- so the story's save branch is taken as false.
+            handleResult (ZMachine.provideSaveResult False m) model
+
+        NeedRestore m ->
+            handleResult (ZMachine.provideRestoreResult Nothing m) model
 
         Halted m ->
             let

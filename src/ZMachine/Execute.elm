@@ -1,4 +1,4 @@
-module ZMachine.Execute exposing (step)
+module ZMachine.Execute exposing (step, resumeWithBranch)
 
 {-| Z-Machine instruction execution.
 
@@ -36,6 +36,7 @@ import ZMachine.Opcode as Opcode
         , Operand(..)
         , variableRefFromByte
         )
+import ZMachine.Snapshot as Snapshot
 import ZMachine.State as State
 import ZMachine.StatusLine as StatusLine
 import ZMachine.Text as Text
@@ -63,6 +64,27 @@ step machine =
             resolveOperands instr.operands machine
     in
     execute instr nextPC operandValues machineAfterOperands
+
+
+{-| Re-decode the instruction at `machine.pc` and apply a branch with
+the given boolean result, advancing past the instruction. Used by the
+save/restore resumption paths in [`ZMachine.Run`](ZMachine-Run): the
+machine was suspended mid-`save`/`restore`, and the host now reports
+whether the operation succeeded.
+-}
+resumeWithBranch : Bool -> ZMachine -> StepResult
+resumeWithBranch success machine =
+    let
+        instr =
+            Decode.decode machine.pc machine.memory
+
+        nextPC =
+            machine.pc + instr.length
+
+        m =
+            { machine | pc = nextPC }
+    in
+    executeBranch instr success m
 
 
 
@@ -308,12 +330,29 @@ execute instr nextPC ops machine =
             Continue m
 
         Op0 Save ->
-            -- For now, save always fails (branches on failure)
-            executeBranch instr False m
+            -- Suspend execution, handing a snapshot to the host. The host
+            -- persists it (Quetzal, native, or custom) and calls
+            -- `provideSaveResult` with True/False. We return `machine`
+            -- (pc still at the save opcode) so provideSaveResult can
+            -- re-decode and apply the branch.
+            let
+                snap =
+                    Snapshot.capture
+                        { memory = machine.memory
+                        , pc = machine.pc
+                        , stack = machine.stack
+                        , callStack = machine.callStack
+                        , resumeKind = Snapshot.ResumeByBranchTrue
+                        }
+            in
+            NeedSave snap machine
 
         Op0 Restore ->
-            -- For now, restore always fails
-            executeBranch instr False m
+            -- Suspend execution; host supplies a snapshot via
+            -- `provideRestoreResult`. We return `machine` (pc still at
+            -- the restore opcode) so resumption can re-decode the
+            -- instruction when the host reports failure (branch False).
+            NeedRestore machine
 
         Op0 Restart ->
             let

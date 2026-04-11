@@ -2,6 +2,7 @@ module ZMachine.Types exposing
     ( ZMachine
     , Memory
     , CallFrame
+    , Snapshot
     , StepResult(..)
     , OutputEvent(..)
     , InputRequest(..)
@@ -34,6 +35,7 @@ Import this module to pattern match on result types:
 -}
 
 import ZMachine.Memory
+import ZMachine.Snapshot
 import ZMachine.Stack
 
 
@@ -49,6 +51,14 @@ type alias Memory =
 -}
 type alias CallFrame =
     ZMachine.Stack.CallFrame
+
+
+{-| Opaque snapshot of Z-Machine state, produced by the save path and
+consumed by the restore path. See [`ZMachine.Snapshot`](ZMachine-Snapshot)
+for operations.
+-}
+type alias Snapshot =
+    ZMachine.Snapshot.Snapshot
 
 
 {-| The complete state of a running Z-Machine. You will receive this
@@ -72,6 +82,12 @@ type alias ZMachine =
     [`ZMachine.runSteps`](ZMachine#runSteps) again to keep going.
   - `NeedInput` — the machine is waiting for a line of player input.
     Call [`ZMachine.provideInput`](ZMachine#provideInput) to resume.
+  - `NeedSave` — the story executed a `save` opcode. The attached
+    snapshot captures the state to be persisted; call
+    [`ZMachine.provideSaveResult`](ZMachine#provideSaveResult) to resume.
+  - `NeedRestore` — the story executed a `restore` opcode. Call
+    [`ZMachine.provideRestoreResult`](ZMachine#provideRestoreResult)
+    with a snapshot (or `Nothing` on failure) to resume.
   - `Halted` — the story called `quit`.
   - `Error` — an unrecoverable error occurred.
 
@@ -82,6 +98,8 @@ before deciding what to do next.
 type StepResult
     = Continue ZMachine
     | NeedInput InputRequest ZMachine
+    | NeedSave Snapshot ZMachine
+    | NeedRestore ZMachine
     | Halted ZMachine
     | Error ZMachineError ZMachine
 

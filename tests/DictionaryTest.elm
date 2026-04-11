@@ -118,8 +118,10 @@ makeMemWithDict separators words =
         dictBytes =
             numSeps
                 :: sepBytes
-                ++ [ entryLength ]
-                ++ [ Bitwise.shiftRightZfBy 8 numEntries, Bitwise.and numEntries 0xFF ]
+                ++ [ entryLength
+                   , Bitwise.shiftRightZfBy 8 numEntries
+                   , Bitwise.and numEntries 0xFF
+                   ]
                 ++ List.concat entries
 
         withDict =

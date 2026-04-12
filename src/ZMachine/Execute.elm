@@ -424,7 +424,7 @@ execute instr nextPC ops machine =
             executePutProp ops m
 
         OpVar Sread ->
-            executeSread ops m
+            executeSread ops { m | pc = machine.pc }
 
         OpVar PrintChar ->
             Continue (State.appendOutput (Types.PrintText (String.fromChar (Text.zsciiToChar arg0))) m)

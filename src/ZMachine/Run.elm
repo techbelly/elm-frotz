@@ -12,6 +12,7 @@ module ZMachine.Run exposing
 
 -}
 
+import ZMachine.Decode as Decode
 import ZMachine.Dictionary as Dictionary
 import ZMachine.Execute as Execute
 import ZMachine.Snapshot as Snapshot exposing (Snapshot)
@@ -66,8 +67,15 @@ provideInput input request machine =
                 -- Write to text buffer and tokenize
                 mem =
                     Dictionary.tokenize truncated info.textBufferAddr info.parseBufferAddr machine.memory
+
+                -- Advance PC past the sread instruction (PC still points at it)
+                instr =
+                    Decode.decode machine.pc machine.memory
+
+                nextPC =
+                    machine.pc + instr.length
             in
-            Continue [] { machine | memory = mem }
+            Continue [] { machine | memory = mem, pc = nextPC }
 
 
 {-| Resume a machine that returned `NeedSave`. Pass `True` if the host

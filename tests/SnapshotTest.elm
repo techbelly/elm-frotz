@@ -11,9 +11,11 @@ import ZMachine.Memory as Memory
 import ZMachine.Run as Run
 import ZMachine.Snapshot as Snapshot exposing (ResumeKind(..))
 import ZMachine.State as State
+import ZMachine
 import ZMachine.Types
     exposing
-        ( StepResult(..)
+        ( InputRequest(..)
+        , StepResult(..)
         , ZMachine
         )
 
@@ -26,6 +28,7 @@ suite =
         , wrongStoryTests
         , saveOpcodeTests
         , restoreOpcodeTests
+        , snapshotAtNeedInputTests
         ]
 
 
@@ -509,3 +512,131 @@ describeOutcome outcome =
 
         Execute.Error _ _ ->
             "Error"
+
+
+describeStepResult : StepResult -> String
+describeStepResult result =
+    case result of
+        Continue _ _ ->
+            "Continue"
+
+        NeedInput _ _ _ ->
+            "NeedInput"
+
+        NeedSave _ _ _ ->
+            "NeedSave"
+
+        NeedRestore _ _ ->
+            "NeedRestore"
+
+        Halted _ _ ->
+            "Halted"
+
+        Error _ _ _ ->
+            "Error"
+
+
+
+-- SNAPSHOT AT NEEDINPUT
+
+
+{-| Bytes for a VAR-form sread with text buffer at 0xC0 and parse buffer
+at 0xD0. Encoding:
+
+    0xE4        – VAR opcode 4 (sread)
+    0x5F        – operand types: small, small, omit, omit
+    0xC0        – text buffer address
+    0xD0        – parse buffer address
+
+The text buffer byte at 0xC0 must hold the max input length.
+
+-}
+sreadBytes : List Int
+sreadBytes =
+    [ 0xE4, 0x5F, 0xC0, 0xD0 ]
+
+
+{-| Build a machine whose PC starts at an sread instruction.
+The text buffer at 0xC0 has max-length = 20, and the parse buffer
+at 0xD0 has room for 4 words. A `quit` (0xB0) follows the sread
+so that if the machine runs past sread it halts instead of
+executing garbage.
+-}
+makeSreadMachine : ZMachine
+makeSreadMachine =
+    let
+        base =
+            makeZM (sreadBytes ++ [ 0xB0 ])
+    in
+    { base
+        | memory =
+            base.memory
+                |> Memory.writeByte 0xC0 20
+                -- max input length
+                |> Memory.writeByte 0xD0 4
+        -- max parse words
+    }
+
+
+snapshotAtNeedInputTests : Test
+snapshotAtNeedInputTests =
+    describe "snapshot + restore at NeedInput (sread)"
+        [ test "runSteps on sread machine yields NeedInput" <|
+            \_ ->
+                case ZMachine.runSteps 1000 makeSreadMachine of
+                    NeedInput _ _ _ ->
+                        Expect.pass
+
+                    other ->
+                        Expect.fail ("expected NeedInput, got " ++ describeStepResult other)
+        , test "restored snapshot yields NeedInput on runSteps, not Continue" <|
+            \_ ->
+                -- 1. Run to NeedInput
+                case ZMachine.runSteps 1000 makeSreadMachine of
+                    NeedInput req _ machineAtRead ->
+                        let
+                            -- 2. Snapshot the machine at NeedInput
+                            snap =
+                                ZMachine.snapshot machineAtRead
+
+                            encoded =
+                                Snapshot.encode machineAtRead.originalMemory snap
+
+                            -- 3. Provide input and run forward (simulates a turn)
+                            afterInput =
+                                ZMachine.provideInput "north" req machineAtRead
+                        in
+                        case afterInput of
+                            Continue _ machineAfterInput ->
+                                -- 4. Decode and restore the earlier snapshot
+                                case Snapshot.decode machineAfterInput.originalMemory encoded of
+                                    Ok decodedSnap ->
+                                        case ZMachine.restoreSnapshot decodedSnap machineAfterInput of
+                                            Ok restoredMachine ->
+                                                -- 5. runSteps should yield NeedInput (re-execute sread)
+                                                --    BUG: currently skips sread because PC is past it
+                                                case ZMachine.runSteps 1000 restoredMachine of
+                                                    NeedInput _ _ _ ->
+                                                        Expect.pass
+
+                                                    other ->
+                                                        Expect.fail
+                                                            ("expected NeedInput after restore, got "
+                                                                ++ describeStepResult other
+                                                                ++ " (PC was "
+                                                                ++ String.fromInt restoredMachine.pc
+                                                                ++ ", sread is at 0x40)"
+                                                            )
+
+                                            Err _ ->
+                                                Expect.fail "restoreSnapshot failed"
+
+                                    Err msg ->
+                                        Expect.fail ("Snapshot.decode failed: " ++ msg)
+
+                            _ ->
+                                Expect.fail "expected Continue after provideInput"
+
+                    other ->
+                        Expect.fail ("expected initial NeedInput, got " ++ describeStepResult other)
+        ]

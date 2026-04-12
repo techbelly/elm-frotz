@@ -63,6 +63,7 @@ import Bitwise
 import Bytes exposing (Bytes)
 import Bytes.Decode as BD
 import Bytes.Encode as BE
+import Library.CMem as CMem
 import ZMachine.Header as Header
 import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Opcode exposing (VariableRef(..))
@@ -302,18 +303,30 @@ nativeMagic =
 
 nativeVersion : Int
 nativeVersion =
-    1
+    2
 
 
 {-| Encode a snapshot as bytes using the interpreter's native format.
+
+The `Memory` argument is the **original** story memory — it is used to
+produce a compressed diff (XOR + run-length encoding) of dynamic memory
+rather than storing the full image. This typically reduces the dynamic
+memory payload from ~16 KB to a few hundred bytes.
 
 Useful for storing autosaves in `localStorage`, a file, etc. The output
 is not portable between different Z-Machine interpreters — use
 [`ZMachine.Quetzal.encode`](ZMachine-Quetzal#encode) for interop.
 
 -}
-encode : Snapshot -> Bytes
-encode (Snapshot snap) =
+encode : Memory -> Snapshot -> Bytes
+encode originalMemory (Snapshot snap) =
+    let
+        compressedDynMem =
+            CMem.compress
+                { original = Memory.dynamicBytes originalMemory
+                , current = snap.dynamicMem
+                }
+    in
     BE.sequence
         [ BE.unsignedInt32 Bytes.BE nativeMagic
         , BE.unsignedInt8 nativeVersion
@@ -322,7 +335,7 @@ encode (Snapshot snap) =
         , encodeSerial snap.metaData.serial
         , BE.unsignedInt16 Bytes.BE snap.metaData.checksum
         , BE.unsignedInt32 Bytes.BE snap.pcAddr
-        , encodeLengthPrefixed BE.unsignedInt8 (Array.toList snap.dynamicMem)
+        , encodeLengthPrefixed BE.unsignedInt8 compressedDynMem
         , encodeLengthPrefixed encodeWord snap.evalStack
         , encodeLengthPrefixed encodeFrame snap.callFrames
         ]
@@ -330,11 +343,16 @@ encode (Snapshot snap) =
 
 
 {-| Decode a snapshot from bytes produced by [`encode`](#encode).
+
+The `Memory` argument is the **original** story memory — it is needed
+to decompress the dynamic memory diff stored in the snapshot.
+
 Returns `Err` with a reason string on any format error.
+
 -}
-decode : Bytes -> Result String Snapshot
-decode bytes =
-    BD.decode nativeDecoder bytes
+decode : Memory -> Bytes -> Result String Snapshot
+decode originalMemory bytes =
+    BD.decode (nativeDecoder originalMemory) bytes
         |> Maybe.withDefault (Err "Snapshot bytes truncated or malformed")
 
 
@@ -422,8 +440,8 @@ encodeFrame frame =
 -- NATIVE DECODE HELPERS
 
 
-nativeDecoder : BD.Decoder (Result String Snapshot)
-nativeDecoder =
+nativeDecoder : Memory -> BD.Decoder (Result String Snapshot)
+nativeDecoder originalMemory =
     BD.map2 Tuple.pair
         (BD.unsignedInt32 Bytes.BE)
         BD.unsignedInt8
@@ -436,41 +454,46 @@ nativeDecoder =
                     BD.succeed (Err ("Snapshot format version " ++ String.fromInt version ++ " not supported"))
 
                 else
-                    decodeBody
+                    decodeBody (Memory.dynamicBytes originalMemory)
             )
 
 
-decodeBody : BD.Decoder (Result String Snapshot)
-decodeBody =
-    BD.succeed assembleSnapshot
+decodeBody : Array Int -> BD.Decoder (Result String Snapshot)
+decodeBody originalDynamic =
+    BD.succeed (assembleSnapshot originalDynamic)
         |> andMap BD.unsignedInt8
         |> andMap (BD.unsignedInt16 Bytes.BE)
         |> andMap (decodeSerial 6)
         |> andMap (BD.unsignedInt16 Bytes.BE)
         |> andMap (BD.unsignedInt32 Bytes.BE)
-        |> andMap decodeByteArray
+        |> andMap decodeByteList
         |> andMap decodeWordList
         |> andMap decodeFrames
 
 
-assembleSnapshot : Int -> Int -> String -> Int -> Int -> Array Int -> List Int -> List CallFrame -> Result String Snapshot
-assembleSnapshot resumeByte release serial checksum pcAddr dynMem evalStack frames =
-    byteToResumeKind resumeByte
-        |> Result.map
-            (\resume ->
-                Snapshot
-                    { dynamicMem = dynMem
-                    , pcAddr = pcAddr
-                    , evalStack = evalStack
-                    , callFrames = frames
-                    , resume = resume
-                    , metaData =
-                        { release = release
-                        , serial = serial
-                        , checksum = checksum
-                        }
+assembleSnapshot : Array Int -> Int -> Int -> String -> Int -> Int -> List Int -> List Int -> List CallFrame -> Result String Snapshot
+assembleSnapshot originalDynamic resumeByte release serial checksum pcAddr compressedDynMem evalStack frames =
+    Result.map2
+        (\resume dynMem ->
+            Snapshot
+                { dynamicMem = dynMem
+                , pcAddr = pcAddr
+                , evalStack = evalStack
+                , callFrames = frames
+                , resume = resume
+                , metaData =
+                    { release = release
+                    , serial = serial
+                    , checksum = checksum
                     }
-            )
+                }
+        )
+        (byteToResumeKind resumeByte)
+        (CMem.decompress
+            { compressed = compressedDynMem
+            , original = originalDynamic
+            }
+        )
 
 
 {-| Applicative apply for `BD.Decoder`. Lets us build a decoder that
@@ -505,10 +528,9 @@ decodeSerial n =
         |> BD.map (List.map Char.fromCode >> String.fromList)
 
 
-decodeByteArray : BD.Decoder (Array Int)
-decodeByteArray =
+decodeByteList : BD.Decoder (List Int)
+decodeByteList =
     lengthPrefixed BD.unsignedInt8
-        |> BD.map Array.fromList
 
 
 decodeWordList : BD.Decoder (List Int)

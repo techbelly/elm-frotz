@@ -2,6 +2,7 @@ module SnapshotTest exposing (suite)
 
 import Array
 import Bitwise
+import Bytes
 import Bytes.Encode as Encode
 import Expect
 import Test exposing (Test, describe, test)
@@ -247,7 +248,8 @@ nativeCodecTests =
                             }
 
                     roundTripped =
-                        Snapshot.encode snap |> Snapshot.decode
+                        Snapshot.encode baseZM.originalMemory snap
+                            |> Snapshot.decode baseZM.originalMemory
                 in
                 case roundTripped of
                     Err msg ->
@@ -264,6 +266,70 @@ nativeCodecTests =
                             , \d -> Snapshot.dynamicMemory d |> Array.length |> Expect.equal (Memory.dynamicSize baseZM.memory)
                             ]
                             decoded
+        , test "mutated dynamic memory round-trips through compressed codec" <|
+            \_ ->
+                let
+                    baseZM =
+                        makeZM saveBytes
+
+                    -- Write several bytes into dynamic memory so the diff is non-trivial.
+                    mutatedMem =
+                        baseZM.memory
+                            |> Memory.writeByte 0x80 0xAB
+                            |> Memory.writeByte 0x81 0xCD
+                            |> Memory.writeByte 0x90 0xEF
+
+                    snap =
+                        Snapshot.capture
+                            { memory = mutatedMem
+                            , pc = baseZM.pc
+                            , stack = []
+                            , callStack = []
+                            , resumeKind = Snapshot.ResumeAt
+                            }
+
+                    encoded =
+                        Snapshot.encode baseZM.originalMemory snap
+
+                    decoded =
+                        Snapshot.decode baseZM.originalMemory encoded
+                in
+                case decoded of
+                    Err msg ->
+                        Expect.fail ("decode failed: " ++ msg)
+
+                    Ok restored ->
+                        Expect.all
+                            [ \d -> Array.get 0x80 (Snapshot.dynamicMemory d) |> Expect.equal (Just 0xAB)
+                            , \d -> Array.get 0x81 (Snapshot.dynamicMemory d) |> Expect.equal (Just 0xCD)
+                            , \d -> Array.get 0x90 (Snapshot.dynamicMemory d) |> Expect.equal (Just 0xEF)
+                            , \d -> Snapshot.dynamicMemory d |> Array.length |> Expect.equal (Memory.dynamicSize baseZM.memory)
+                            ]
+                            restored
+        , test "compressed snapshot is smaller than uncompressed dynamic memory" <|
+            \_ ->
+                let
+                    baseZM =
+                        makeZM saveBytes
+
+                    snap =
+                        Snapshot.capture
+                            { memory = baseZM.memory
+                            , pc = baseZM.pc
+                            , stack = []
+                            , callStack = []
+                            , resumeKind = Snapshot.ResumeAt
+                            }
+
+                    encoded =
+                        Snapshot.encode baseZM.originalMemory snap
+
+                    dynSize =
+                        Memory.dynamicSize baseZM.memory
+                in
+                -- When nothing has changed, the compressed diff should be
+                -- dramatically smaller than the raw dynamic memory size.
+                Expect.lessThan dynSize (Bytes.width encoded)
         ]
 
 

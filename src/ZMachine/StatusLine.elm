@@ -18,7 +18,7 @@ import Library.IntExtra exposing (toSignedInt16)
 import ZMachine.Header as Header
 import ZMachine.Memory as Memory
 import ZMachine.ObjectTable as ObjectTable
-import ZMachine.Types as Types exposing (ZMachine)
+import ZMachine.Types as Types exposing (StatusLineMode(..), ZMachine)
 
 
 {-| Read the three status globals out of the machine and build a
@@ -35,9 +35,21 @@ build machine =
 
         locationObj =
             Memory.readWord globalsAddr mem
+
+        global1 =
+            Memory.readWord (globalsAddr + Memory.wordLength) mem
+
+        global2 =
+            Memory.readWord (globalsAddr + 2 * Memory.wordLength) mem
+
+        mode =
+            if Header.testFlag1 Header.StatusLineType mem then
+                TimeOfDay global1 global2
+
+            else
+                ScoreAndTurns (toSignedInt16 global1) global2
     in
-    { locationName = ObjectTable.shortName locationObj mem
-    , score = toSignedInt16 (Memory.readWord (globalsAddr + Memory.wordLength) mem)
-    , turns = Memory.readWord (globalsAddr + 2 * Memory.wordLength) mem
-    , isTimeGame = Header.testFlag1 Header.StatusLineType mem
+    { locationId = locationObj
+    , locationName = ObjectTable.shortName locationObj mem
+    , mode = mode
     }

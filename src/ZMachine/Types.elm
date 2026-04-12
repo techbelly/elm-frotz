@@ -8,6 +8,7 @@ module ZMachine.Types exposing
     , InputRequest(..)
     , ZMachineError(..)
     , StatusLine
+    , StatusLineMode(..)
     , Window(..)
     )
 
@@ -164,19 +165,28 @@ type OutputEvent
     | PlaySound Int
 
 
+{-| Whether the game tracks score/turns or a clock.
+
+  - `ScoreAndTurns score turns` — a score game.
+  - `TimeOfDay hours minutes` — a time game (hours 0–23, minutes 0–59).
+
+-}
+type StatusLineMode
+    = ScoreAndTurns Int Int
+    | TimeOfDay Int Int
+
+
 {-| Status line data shown at the top of the screen.
 
-  - `locationName` — the name of the current room or location.
-  - `score` — the player's current score (or hours in a time game).
-  - `turns` — the number of turns taken (or minutes in a time game).
-  - `isTimeGame` — `True` when score/turns represent time instead.
+  - `locationId` — the object number of the current location.
+  - `locationName` — the short name of the current location.
+  - `mode` — score/turns or time, depending on the game.
 
 -}
 type alias StatusLine =
-    { locationName : String
-    , score : Int
-    , turns : Int
-    , isTimeGame : Bool
+    { locationId : Int
+    , locationName : String
+    , mode : StatusLineMode
     }
 
 

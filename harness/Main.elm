@@ -4,7 +4,7 @@ import Bytes exposing (Bytes)
 import Bytes.Encode
 import Platform
 import ZMachine
-import ZMachine.Types exposing (InputRequest(..), OutputEvent(..), StepResult(..), ZMachineError(..))
+import ZMachine.Types exposing (InputRequest(..), OutputEvent(..), StatusLineMode(..), StepResult(..), ZMachineError(..))
 
 
 port storyLoaded : (List Int -> msg) -> Sub msg
@@ -165,7 +165,16 @@ formatOutput events =
                         Just "\n"
 
                     ShowStatusLine status ->
-                        Just ("[Status: " ++ status.locationName ++ " | Score: " ++ String.fromInt status.score ++ " Turns: " ++ String.fromInt status.turns ++ "]\n")
+                        let
+                            right =
+                                case status.mode of
+                                    ScoreAndTurns score turns ->
+                                        "Score: " ++ String.fromInt score ++ " Turns: " ++ String.fromInt turns
+
+                                    TimeOfDay hours minutes ->
+                                        "Time: " ++ String.fromInt hours ++ ":" ++ String.padLeft 2 '0' (String.fromInt minutes)
+                        in
+                        Just ("[Status: " ++ status.locationName ++ " | " ++ right ++ "]\n")
 
                     _ ->
                         Nothing

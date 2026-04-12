@@ -105,6 +105,7 @@ type alias StatusLine =
     ZMachine.Types.StatusLine
 
 
+
 {-| Screen window identifier (`Upper` or `Lower`).
 -}
 type alias Window =

@@ -83,12 +83,7 @@ update msg model =
         InputReceived text ->
             case ( model.machine, model.waitingForInput ) of
                 ( Just machine, Just req ) ->
-                    case ZMachine.provideInput text req machine of
-                        Continue next ->
-                            runMachine next
-
-                        other ->
-                            handleResult other model
+                    handleResult (ZMachine.provideInput text req machine) model
 
                 _ ->
                     -- The harness does not yet implement file-backed save/restore;
@@ -119,52 +114,41 @@ runMachine machine =
 handleResult : StepResult -> Model -> ( Model, Cmd Msg )
 handleResult result model =
     case result of
-        Continue m ->
+        Continue events m ->
             -- Step budget exhausted — yield to JS event loop, then resume
-            let
-                text =
-                    formatOutput (ZMachine.getOutput m)
-
-                cleaned =
-                    ZMachine.clearOutput m
-            in
-            ( { model | machine = Just cleaned }
-            , Cmd.batch [ output text, continueRunning () ]
+            ( { model | machine = Just m }
+            , Cmd.batch [ output (formatOutput events), continueRunning () ]
             )
 
-        NeedInput req m ->
-            let
-                text =
-                    formatOutput (ZMachine.getOutput m)
-            in
-            ( { model | machine = Just (ZMachine.clearOutput m), waitingForInput = Just req }
-            , Cmd.batch [ output text, requestInput "" ]
+        NeedInput req events m ->
+            ( { model | machine = Just m, waitingForInput = Just req }
+            , Cmd.batch [ output (formatOutput events), requestInput "" ]
             )
 
-        NeedSave _ m ->
+        NeedSave _ events m ->
             -- Harness has no file I/O wired up yet; report save as failed
             -- so the story's save branch is taken as false.
-            handleResult (ZMachine.provideSaveResult False m) model
-
-        NeedRestore m ->
-            handleResult (ZMachine.provideRestoreResult Nothing m) model
-
-        Halted m ->
             let
-                text =
-                    formatOutput (ZMachine.getOutput m)
+                ( next, cmd ) =
+                    handleResult (ZMachine.provideSaveResult False m) model
             in
+            ( next, Cmd.batch [ output (formatOutput events), cmd ] )
+
+        NeedRestore events m ->
+            let
+                ( next, cmd ) =
+                    handleResult (ZMachine.provideRestoreResult Nothing m) model
+            in
+            ( next, Cmd.batch [ output (formatOutput events), cmd ] )
+
+        Halted events m ->
             ( { model | machine = Just m }
-            , Cmd.batch [ output (text ++ "\n[Machine halted]"), requestInput "HALT" ]
+            , Cmd.batch [ output (formatOutput events ++ "\n[Machine halted]"), requestInput "HALT" ]
             )
 
-        Error err m ->
-            let
-                text =
-                    formatOutput (ZMachine.getOutput m)
-            in
+        Error err events m ->
             ( { model | machine = Just m }
-            , errorOccurred (text ++ "\n[Error: " ++ errorToString err ++ "]")
+            , errorOccurred (formatOutput events ++ "\n[Error: " ++ errorToString err ++ "]")
             )
 
 

@@ -15,8 +15,6 @@ module ZMachine exposing
     , provideRestoreResult
     , snapshot
     , restoreSnapshot
-    , getOutput
-    , clearOutput
     )
 
 {-| A pure Elm Z-Machine version 3 interpreter for interactive fiction.
@@ -26,8 +24,12 @@ to load and run a `.z3` story file are here. For pattern matching on
 result types, also import the constructors from
 [`ZMachine.Types`](ZMachine-Types):
 
-    import ZMachine exposing (load, runSteps, provideInput, clearOutput, getOutput)
+    import ZMachine exposing (load, runSteps, provideInput)
     import ZMachine.Types exposing (StepResult(..), OutputEvent(..), InputRequest(..))
+
+Each [`StepResult`](ZMachine-Types#StepResult) variant carries the
+output events accumulated during the call that produced it, so the
+host never needs to inspect the machine's output buffer directly.
 
 
 # Types
@@ -52,11 +54,6 @@ schemes and [`ZMachine.Quetzal`](ZMachine-Quetzal) for the standard
 portable format.
 
 @docs snapshot, restoreSnapshot, provideSaveResult, provideRestoreResult
-
-
-# Output
-
-@docs getOutput, clearOutput
 
 -}
 
@@ -261,31 +258,3 @@ snapshots are treated as failures.
 provideRestoreResult : Maybe Snapshot -> ZMachine -> StepResult
 provideRestoreResult =
     Run.provideRestoreResult
-
-
-{-| Get all pending output events. These accumulate as the machine
-executes instructions. Inspect them to render text, status lines, and
-screen commands.
-
-    ZMachine.getOutput machine
-    --> [ PrintText "West of House", NewLine, ... ]
-
--}
-getOutput : ZMachine -> List OutputEvent
-getOutput =
-    Run.getOutput
-
-
-{-| Clear pending output events. Call this after you have processed the
-output so the same events are not rendered twice.
-
-    machine
-        |> ZMachine.getOutput
-        |> render
-    -- then
-    ZMachine.clearOutput machine
-
--}
-clearOutput : ZMachine -> ZMachine
-clearOutput =
-    Run.clearOutput

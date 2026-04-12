@@ -314,7 +314,7 @@ saveOpcodeTests =
         [ test "stepping into save yields NeedSave with the right snapshot" <|
             \_ ->
                 case Execute.step (makeZM saveBytes) of
-                    NeedSave snap machine ->
+                    Execute.NeedSave snap machine ->
                         Expect.all
                             [ \_ -> Snapshot.pc snap |> Expect.equal 0x40
                             , \_ -> Snapshot.resumeKind snap |> Expect.equal Snapshot.ResumeByBranchTrue
@@ -323,13 +323,13 @@ saveOpcodeTests =
                             ()
 
                     other ->
-                        Expect.fail ("expected NeedSave, got " ++ describeResult other)
+                        Expect.fail ("expected NeedSave, got " ++ describeOutcome other)
         , test "provideSaveResult True takes the branch" <|
             \_ ->
                 case Execute.step (makeZM saveBytes) of
-                    NeedSave _ machine ->
+                    Execute.NeedSave _ machine ->
                         case Run.provideSaveResult True machine of
-                            Continue m ->
+                            Continue _ m ->
                                 -- save pc 0x40, instr length 2, branch offset 10, pc = 0x42 + 10 - 2 = 0x4A
                                 m.pc |> Expect.equal 0x4A
 
@@ -341,9 +341,9 @@ saveOpcodeTests =
         , test "provideSaveResult False falls through" <|
             \_ ->
                 case Execute.step (makeZM saveBytes) of
-                    NeedSave _ machine ->
+                    Execute.NeedSave _ machine ->
                         case Run.provideSaveResult False machine of
-                            Continue m ->
+                            Continue _ m ->
                                 m.pc |> Expect.equal 0x42
 
                             _ ->
@@ -364,17 +364,17 @@ restoreOpcodeTests =
         [ test "stepping into restore yields NeedRestore" <|
             \_ ->
                 case Execute.step (makeZM restoreBytes) of
-                    NeedRestore machine ->
+                    Execute.NeedRestore machine ->
                         machine.pc |> Expect.equal 0x40
 
                     other ->
-                        Expect.fail ("expected NeedRestore, got " ++ describeResult other)
+                        Expect.fail ("expected NeedRestore, got " ++ describeOutcome other)
         , test "provideRestoreResult Nothing falls through" <|
             \_ ->
                 case Execute.step (makeZM restoreBytes) of
-                    NeedRestore machine ->
+                    Execute.NeedRestore machine ->
                         case Run.provideRestoreResult Nothing machine of
-                            Continue m ->
+                            Continue _ m ->
                                 m.pc |> Expect.equal 0x42
 
                             _ ->
@@ -394,15 +394,15 @@ restoreOpcodeTests =
                         makeZM saveBytes
                 in
                 case Execute.step saveMachine of
-                    NeedSave snap _ ->
+                    Execute.NeedSave snap _ ->
                         let
                             restoreMachine =
                                 makeZM restoreBytes
                         in
                         case Execute.step restoreMachine of
-                            NeedRestore m ->
+                            Execute.NeedRestore m ->
                                 case Run.provideRestoreResult (Just snap) m of
-                                    Continue next ->
+                                    Continue _ next ->
                                         -- Should have taken the save's branch:
                                         --   nextPC = 0x40 + 2 = 0x42
                                         --   pc after branch = 0x42 + 10 - 2 = 0x4A
@@ -420,26 +420,26 @@ restoreOpcodeTests =
 
 
 
--- DESCRIBE STEP RESULTS FOR FAILURE MESSAGES
+-- DESCRIBE EXECUTE OUTCOMES FOR FAILURE MESSAGES
 
 
-describeResult : StepResult -> String
-describeResult result =
-    case result of
-        Continue _ ->
+describeOutcome : Execute.Outcome -> String
+describeOutcome outcome =
+    case outcome of
+        Execute.Continue _ ->
             "Continue"
 
-        NeedInput _ _ ->
+        Execute.NeedInput _ _ ->
             "NeedInput"
 
-        NeedSave _ _ ->
+        Execute.NeedSave _ _ ->
             "NeedSave"
 
-        NeedRestore _ ->
+        Execute.NeedRestore _ ->
             "NeedRestore"
 
-        Halted _ ->
+        Execute.Halted _ ->
             "Halted"
 
-        Error _ _ ->
+        Execute.Error _ _ ->
             "Error"

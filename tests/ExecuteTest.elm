@@ -5,15 +5,13 @@ import Bitwise
 import Bytes.Encode as Encode
 import Expect
 import Test exposing (Test, describe, test)
-import ZMachine.Execute as Execute
+import ZMachine.Execute as Execute exposing (Outcome(..))
 import ZMachine.Memory as Memory
 import ZMachine.Opcode exposing (VariableRef(..))
-import ZMachine.Run as Run
 import ZMachine.State as State
 import ZMachine.Types
     exposing
         ( OutputEvent(..)
-        , StepResult(..)
         , ZMachine
         , ZMachineError(..)
         )
@@ -117,7 +115,7 @@ makeZMWithGlobal globalNum value instrBytes =
 
 getOutputText : ZMachine -> String
 getOutputText zm =
-    Run.getOutput zm
+    List.reverse zm.output
         |> List.filterMap
             (\event ->
                 case event of

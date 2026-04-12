@@ -78,6 +78,12 @@ type alias ZMachine =
 
 {-| Result of executing one or more instructions.
 
+Every variant carries a `List OutputEvent` containing the output
+accumulated during the call that produced this result, followed by the
+current `ZMachine`. The returned machine's output buffer is always
+empty — the run-loop drains it into the variant, so callers never need
+to manage output state themselves.
+
   - `Continue` — step budget exhausted, call
     [`ZMachine.runSteps`](ZMachine#runSteps) again to keep going.
   - `NeedInput` — the machine is waiting for a line of player input.
@@ -91,17 +97,14 @@ type alias ZMachine =
   - `Halted` — the story called `quit`.
   - `Error` — an unrecoverable error occurred.
 
-Every variant carries the current `ZMachine` so you can inspect output
-before deciding what to do next.
-
 -}
 type StepResult
-    = Continue ZMachine
-    | NeedInput InputRequest ZMachine
-    | NeedSave Snapshot ZMachine
-    | NeedRestore ZMachine
-    | Halted ZMachine
-    | Error ZMachineError ZMachine
+    = Continue (List OutputEvent) ZMachine
+    | NeedInput InputRequest (List OutputEvent) ZMachine
+    | NeedSave Snapshot (List OutputEvent) ZMachine
+    | NeedRestore (List OutputEvent) ZMachine
+    | Halted (List OutputEvent) ZMachine
+    | Error ZMachineError (List OutputEvent) ZMachine
 
 
 {-| Errors that can halt the machine.

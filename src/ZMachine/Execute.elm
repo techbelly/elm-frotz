@@ -1,10 +1,10 @@
-module ZMachine.Execute exposing (step, resumeWithBranch)
+module ZMachine.Execute exposing (Outcome(..), step, resumeWithBranch)
 
 {-| Z-Machine instruction execution.
 
 Decodes and executes a single instruction, returning the resulting state.
 
-@docs step
+@docs Outcome, step, resumeWithBranch
 
 -}
 
@@ -43,15 +43,30 @@ import ZMachine.Text as Text
 import ZMachine.Types as Types
     exposing
         ( InputRequest(..)
-        , StepResult(..)
         , ZMachine
         , ZMachineError(..)
         )
 
 
+{-| Internal result of executing one instruction. The public
+[`Outcome`](ZMachine-Types#Outcome) is assembled in
+[`ZMachine.Run`](ZMachine-Run), which drains `machine.output` into the
+variant so callers never see the internal output buffer. Keeping this
+type private to the interpreter lets the 47 construction sites below
+stay output-agnostic.
+-}
+type Outcome
+    = Continue ZMachine
+    | NeedInput InputRequest ZMachine
+    | NeedSave Snapshot.Snapshot ZMachine
+    | NeedRestore ZMachine
+    | Halted ZMachine
+    | Error ZMachineError ZMachine
+
+
 {-| Execute a single instruction at the current PC.
 -}
-step : ZMachine -> StepResult
+step : ZMachine -> Outcome
 step machine =
     let
         instr =
@@ -72,7 +87,7 @@ save/restore resumption paths in [`ZMachine.Run`](ZMachine-Run): the
 machine was suspended mid-`save`/`restore`, and the host now reports
 whether the operation succeeded.
 -}
-resumeWithBranch : Bool -> ZMachine -> StepResult
+resumeWithBranch : Bool -> ZMachine -> Outcome
 resumeWithBranch success machine =
     let
         instr =
@@ -126,7 +141,7 @@ resolveOperand operand machine =
 -- DISPATCH
 
 
-execute : Instruction -> Int -> List Int -> ZMachine -> StepResult
+execute : Instruction -> Int -> List Int -> ZMachine -> Outcome
 execute instr nextPC ops machine =
     let
         m =
@@ -474,7 +489,7 @@ execute instr nextPC ops machine =
 -- BRANCH EXECUTION
 
 
-executeBranch : Instruction -> Bool -> ZMachine -> StepResult
+executeBranch : Instruction -> Bool -> ZMachine -> Outcome
 executeBranch instr conditionResult machine =
     case instr.branch of
         Just branch ->
@@ -500,7 +515,7 @@ executeBranch instr conditionResult machine =
 -- STORE RESULT
 
 
-storeResult : Instruction -> Int -> ZMachine -> StepResult
+storeResult : Instruction -> Int -> ZMachine -> Outcome
 storeResult instr value machine =
     case instr.store of
         Just varRef ->
@@ -514,7 +529,7 @@ storeResult instr value machine =
 -- CALL / RETURN
 
 
-executeCall : Instruction -> Int -> List Int -> ZMachine -> StepResult
+executeCall : Instruction -> Int -> List Int -> ZMachine -> Outcome
 executeCall instr packedAddr args machine =
     if packedAddr == 0 then
         -- Calling address 0 returns false
@@ -558,7 +573,7 @@ executeCall instr packedAddr args machine =
             }
 
 
-executeReturn : Int -> ZMachine -> StepResult
+executeReturn : Int -> ZMachine -> Outcome
 executeReturn value machine =
     case machine.callStack of
         frame :: rest ->
@@ -586,7 +601,7 @@ executeReturn value machine =
 -- JE: branch if first operand equals any subsequent
 
 
-executeJe : Instruction -> List Int -> ZMachine -> StepResult
+executeJe : Instruction -> List Int -> ZMachine -> Outcome
 executeJe instr ops machine =
     let
         a =
@@ -620,7 +635,7 @@ adjustIndirect varNum delta machine =
     ( newValue, writeIndirect varNum newValue m )
 
 
-executeIncDecCheck : Int -> (Int -> Int -> Bool) -> Instruction -> List Int -> ZMachine -> StepResult
+executeIncDecCheck : Int -> (Int -> Int -> Bool) -> Instruction -> List Int -> ZMachine -> Outcome
 executeIncDecCheck delta cmp instr ops machine =
     let
         checkValue =
@@ -632,7 +647,7 @@ executeIncDecCheck delta cmp instr ops machine =
     executeBranch instr (cmp newValue checkValue) m
 
 
-executeIncDec : Int -> List Int -> ZMachine -> StepResult
+executeIncDec : Int -> List Int -> ZMachine -> Outcome
 executeIncDec delta ops machine =
     let
         ( _, m ) =
@@ -645,7 +660,7 @@ executeIncDec delta ops machine =
 -- OBJECT OPERATIONS
 
 
-executeJin : Instruction -> List Int -> ZMachine -> StepResult
+executeJin : Instruction -> List Int -> ZMachine -> Outcome
 executeJin instr ops machine =
     let
         child =
@@ -660,7 +675,7 @@ executeJin instr ops machine =
     executeBranch instr (childParent == parent) machine
 
 
-executeTestAttr : Instruction -> List Int -> ZMachine -> StepResult
+executeTestAttr : Instruction -> List Int -> ZMachine -> Outcome
 executeTestAttr instr ops machine =
     let
         obj =
@@ -675,7 +690,7 @@ executeTestAttr instr ops machine =
     executeBranch instr hasAttr machine
 
 
-executeAttrUpdate : (Int -> Int -> Memory.Memory -> Memory.Memory) -> List Int -> ZMachine -> StepResult
+executeAttrUpdate : (Int -> Int -> Memory.Memory -> Memory.Memory) -> List Int -> ZMachine -> Outcome
 executeAttrUpdate update ops machine =
     Continue
         { machine
@@ -683,7 +698,7 @@ executeAttrUpdate update ops machine =
         }
 
 
-executeInsertObj : List Int -> ZMachine -> StepResult
+executeInsertObj : List Int -> ZMachine -> Outcome
 executeInsertObj ops machine =
     let
         obj =
@@ -709,7 +724,7 @@ executeInsertObj ops machine =
     Continue { machine | memory = mem }
 
 
-executeRemoveObj : List Int -> ZMachine -> StepResult
+executeRemoveObj : List Int -> ZMachine -> Outcome
 executeRemoveObj ops machine =
     let
         obj =
@@ -726,7 +741,7 @@ executeRemoveObj ops machine =
 {-| Shared implementation of `get_sibling` and `get_child`: store the
 resolved object number and branch if it is non-zero.
 -}
-executeGetTreeLink : (Int -> Memory.Memory -> Int) -> Instruction -> List Int -> ZMachine -> StepResult
+executeGetTreeLink : (Int -> Memory.Memory -> Int) -> Instruction -> List Int -> ZMachine -> Outcome
 executeGetTreeLink accessor instr ops machine =
     let
         target =
@@ -743,17 +758,17 @@ executeGetTreeLink accessor instr ops machine =
     executeBranch instr (target /= 0) m
 
 
-executeGetParent : Instruction -> List Int -> ZMachine -> StepResult
+executeGetParent : Instruction -> List Int -> ZMachine -> Outcome
 executeGetParent instr ops machine =
     storeResult instr (ObjectTable.parent (operandAt 0 ops) machine.memory) machine
 
 
-executeGetPropLen : Instruction -> List Int -> ZMachine -> StepResult
+executeGetPropLen : Instruction -> List Int -> ZMachine -> Outcome
 executeGetPropLen instr ops machine =
     storeResult instr (ObjectTable.propertyLength (operandAt 0 ops) machine.memory) machine
 
 
-executeGetProp : Instruction -> List Int -> ZMachine -> StepResult
+executeGetProp : Instruction -> List Int -> ZMachine -> Outcome
 executeGetProp instr ops machine =
     let
         obj =
@@ -778,7 +793,7 @@ executeGetProp instr ops machine =
             storeResult instr (ObjectTable.propertyDefault propNum machine.memory) machine
 
 
-executeGetPropAddr : Instruction -> List Int -> ZMachine -> StepResult
+executeGetPropAddr : Instruction -> List Int -> ZMachine -> Outcome
 executeGetPropAddr instr ops machine =
     let
         obj =
@@ -795,14 +810,14 @@ executeGetPropAddr instr ops machine =
             storeResult instr 0 machine
 
 
-executeGetNextProp : Instruction -> List Int -> ZMachine -> StepResult
+executeGetNextProp : Instruction -> List Int -> ZMachine -> Outcome
 executeGetNextProp instr ops machine =
     storeResult instr
         (ObjectTable.nextPropertyNumber (operandAt 0 ops) (operandAt 1 ops) machine.memory)
         machine
 
 
-executePutProp : List Int -> ZMachine -> StepResult
+executePutProp : List Int -> ZMachine -> Outcome
 executePutProp ops machine =
     let
         obj =
@@ -831,7 +846,7 @@ executePutProp ops machine =
             Continue machine
 
 
-executePrintObj : List Int -> ZMachine -> StepResult
+executePrintObj : List Int -> ZMachine -> Outcome
 executePrintObj ops machine =
     let
         name =
@@ -844,7 +859,7 @@ executePrintObj ops machine =
 -- SHOW STATUS
 
 
-executeShowStatus : ZMachine -> StepResult
+executeShowStatus : ZMachine -> Outcome
 executeShowStatus machine =
     Continue (State.appendOutput (Types.ShowStatusLine (StatusLine.build machine)) machine)
 
@@ -853,7 +868,7 @@ executeShowStatus machine =
 -- SREAD (input)
 
 
-executeSread : List Int -> ZMachine -> StepResult
+executeSread : List Int -> ZMachine -> Outcome
 executeSread ops machine =
     let
         textBufAddr =
@@ -879,7 +894,7 @@ executeSread ops machine =
 -- RANDOM
 
 
-executeRandom : Instruction -> List Int -> ZMachine -> StepResult
+executeRandom : Instruction -> List Int -> ZMachine -> Outcome
 executeRandom instr ops machine =
     let
         range =

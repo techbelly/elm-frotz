@@ -4,13 +4,11 @@ module ZMachine.Run exposing
     , provideInput
     , provideSaveResult
     , provideRestoreResult
-    , getOutput
-    , clearOutput
     )
 
 {-| High-level run loop for the Z-Machine.
 
-@docs step, runSteps, provideInput, provideSaveResult, provideRestoreResult, getOutput, clearOutput
+@docs step, runSteps, provideInput, provideSaveResult, provideRestoreResult
 
 -}
 
@@ -28,25 +26,26 @@ import ZMachine.Types
 {-| Execute a single instruction.
 -}
 step : ZMachine -> StepResult
-step =
-    Execute.step
+step machine =
+    drain (Execute.step machine)
 
 
 {-| Execute up to `n` instructions, stopping early if input is needed,
-the machine halts, or an error occurs.
+the machine halts, or an error occurs. Output accumulated across all
+iterations is drained into the returned variant.
 -}
 runSteps : Int -> ZMachine -> StepResult
 runSteps n machine =
     if n <= 0 then
-        Continue machine
+        drain (Execute.Continue machine)
 
     else
         case Execute.step machine of
-            Continue next ->
+            Execute.Continue next ->
                 runSteps (n - 1) next
 
             other ->
-                other
+                drain other
 
 
 {-| Provide a line of input to a machine waiting for input.
@@ -68,7 +67,7 @@ provideInput input request machine =
                 mem =
                     Dictionary.tokenize truncated info.textBufferAddr info.parseBufferAddr machine.memory
             in
-            Continue { machine | memory = mem }
+            Continue [] { machine | memory = mem }
 
 
 {-| Resume a machine that returned `NeedSave`. Pass `True` if the host
@@ -77,14 +76,14 @@ instruction's branch is then evaluated against that result, matching
 the Z-Machine v3 convention that `save` branches on success.
 
     case ZMachine.runSteps 10000 machine of
-        NeedSave snapshot m ->
+        NeedSave snapshot _ m ->
             -- write snapshot to storage, then:
             ZMachine.provideSaveResult True m
 
 -}
 provideSaveResult : Bool -> ZMachine -> StepResult
-provideSaveResult =
-    Execute.resumeWithBranch
+provideSaveResult success machine =
+    drain (Execute.resumeWithBranch success machine)
 
 
 {-| Resume a machine that returned `NeedRestore`. Pass `Just snapshot`
@@ -103,12 +102,12 @@ provideRestoreResult : Maybe Snapshot -> ZMachine -> StepResult
 provideRestoreResult maybeSnap machine =
     case maybeSnap of
         Nothing ->
-            Execute.resumeWithBranch False machine
+            drain (Execute.resumeWithBranch False machine)
 
         Just snap ->
             case Snapshot.restore snap machine.originalMemory of
                 Err _ ->
-                    Execute.resumeWithBranch False machine
+                    drain (Execute.resumeWithBranch False machine)
 
                 Ok parts ->
                     let
@@ -122,26 +121,44 @@ provideRestoreResult maybeSnap machine =
                     in
                     case Snapshot.resumeKind snap of
                         Snapshot.ResumeAt ->
-                            Continue restored
+                            Continue [] restored
 
                         Snapshot.ResumeByBranchTrue ->
-                            Execute.resumeWithBranch True restored
+                            drain (Execute.resumeWithBranch True restored)
 
 
-{-| Get all pending output events, in chronological order.
 
-Events are stored newest-first internally (so `appendOutput` is O(1));
-this reverses them on read. Consumers that touch `machine.output`
-directly will see the reversed order — use this accessor instead.
+-- OUTCOME → STEPRESULT TRANSLATION
 
+
+{-| Convert an interpreter `Outcome` into the public `StepResult`,
+draining the machine's output buffer into the variant. `machine.output`
+accumulates newest-first (so `State.appendOutput` is O(1)); we reverse
+it on the way out so the host sees events in chronological order, and
+blank the buffer on the returned machine so nothing is delivered twice.
 -}
-getOutput : ZMachine -> List ZMachine.Types.OutputEvent
-getOutput machine =
-    List.reverse machine.output
+drain : Execute.Outcome -> StepResult
+drain outcome =
+    case outcome of
+        Execute.Continue m ->
+            Continue (List.reverse m.output) (clearOutput m)
+
+        Execute.NeedInput req m ->
+            NeedInput req (List.reverse m.output) (clearOutput m)
+
+        Execute.NeedSave snap m ->
+            NeedSave snap (List.reverse m.output) (clearOutput m)
+
+        Execute.NeedRestore m ->
+            NeedRestore (List.reverse m.output) (clearOutput m)
+
+        Execute.Halted m ->
+            Halted (List.reverse m.output) (clearOutput m)
+
+        Execute.Error err m ->
+            Error err (List.reverse m.output) (clearOutput m)
 
 
-{-| Clear pending output events.
--}
 clearOutput : ZMachine -> ZMachine
 clearOutput machine =
     { machine | output = [] }

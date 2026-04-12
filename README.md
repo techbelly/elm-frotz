@@ -7,34 +7,39 @@ A pure Elm Z-Machine version 3 interpreter. Load and run `.z3` interactive ficti
 Two imports give you the full API:
 
 ```elm
-import ZMachine exposing (load, runSteps, provideInput, clearOutput, getOutput)
+import ZMachine exposing (load, runSteps, provideInput)
 import ZMachine.Types exposing (StepResult(..), OutputEvent(..), InputRequest(..))
 ```
 
-Load a story, run it, and handle results:
+Load a story, run it, and handle results. Every `StepResult` variant
+carries the output events produced during the call, so you never need
+to reach into the machine's output buffer:
 
 ```elm
 case ZMachine.load storyBytes of
     Ok machine ->
         case ZMachine.runSteps 10000 machine of
-            Continue nextMachine ->
-                -- step budget exhausted, keep going
+            Continue events nextMachine ->
+                -- step budget exhausted; render events, then keep going
                 ZMachine.runSteps 10000 nextMachine
 
-            NeedInput request machineWithOutput ->
-                -- read output, prompt the player, then resume
-                let
-                    output = ZMachine.getOutput machineWithOutput
-                    cleaned = ZMachine.clearOutput machineWithOutput
-                in
-                -- ... render output, collect input, then:
-                ZMachine.provideInput "open mailbox" request cleaned
+            NeedInput request events next ->
+                -- render events, prompt the player, then resume
+                ZMachine.provideInput "open mailbox" request next
 
-            Halted machine ->
+            Halted events final ->
                 -- story finished
 
-            Error err machine ->
+            Error err events final ->
                 -- something went wrong
+
+            NeedSave snap events next ->
+                -- persist `snap`, then ZMachine.provideSaveResult True next
+                ...
+
+            NeedRestore events next ->
+                -- load a snapshot, then ZMachine.provideRestoreResult (Just snap) next
+                ...
 
     Err reason ->
         -- invalid or unsupported story file
@@ -43,7 +48,7 @@ case ZMachine.load storyBytes of
 Output events are a list you walk through to render:
 
 ```elm
-ZMachine.getOutput machine
+events
     |> List.map
         (\event ->
             case event of
@@ -65,7 +70,7 @@ npm run build-harness    # compile harness/Main.elm -> harness/elm.js
 npm run run-harness -- testing/Zork1.z3   # play!
 ```
 
-The harness uses Elm ports to shuttle bytes and I/O between Node.js and the interpreter, and yields to the JS event loop between step batches to avoid stack overflow.
+The harness uses Elm ports to shuttle bytes and I/O between Node.js and the interpreter, and yields to the JS event loop between step batches to avoid stack overflow. It does not yet wire up file-backed save/restore — stories that hit a `save` or `restore` opcode see the operation reported as failure, and the story's branch is taken accordingly.
 
 ### About the bundled Zork I story file
 
@@ -91,13 +96,13 @@ npm run test-czech # just the CZECH compliance run
 - Dictionary lookup and input tokenization
 - Status line, screen splitting, and cursor control output events
 - Random number generation (predictable and random modes)
+- Save and restore: the `save` / `restore` opcodes surface as `NeedSave` / `NeedRestore` step results carrying a host-persistable `Snapshot`, plus host-driven `ZMachine.snapshot` / `ZMachine.restoreSnapshot` for autosaves. See [`ZMachine.Snapshot`](src/ZMachine/Snapshot.elm) for the native encode/decode codec; cross-story snapshots are rejected by release / serial / checksum
 - Passes the CZECH v3 compliance suite (349/349) and plays Zork I end-to-end
 
 ## What's not implemented yet
 
-- **Save/restore** -- currently stubs that always fail. Needs Quetzal format support.
-- **Performance profiling** -- measure and optimise hot paths for large stories.
-- **Undo** -- not required by v3 spec but would be nice to have.
+- **Quetzal save-file format** -- the save/restore machinery is wired up through `Snapshot`, but the standard portable Quetzal (IFF) codec is still parked on a branch. The built-in `Snapshot.encode` / `Snapshot.decode` is a native format that round-trips but isn't interchangeable with other interpreters.
+- **Future infocom versions** -- the games I want to play are mainly version three, but there are eight versions of the zmachine that I want to eventually support.
 - **Sound** -- `PlaySound` events are emitted but there's no reference playback.
 
 ## License

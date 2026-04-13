@@ -17,6 +17,7 @@ import ZMachine.Dictionary as Dictionary
 import ZMachine.Execute as Execute
 import ZMachine.Memory as Memory
 import ZMachine.Snapshot as Snapshot exposing (Snapshot)
+import ZMachine.State as State
 import ZMachine.Types
     exposing
         ( InputRequest(..)
@@ -187,26 +188,35 @@ blank the buffer on the returned machine so nothing is delivered twice.
 -}
 drain : Execute.Outcome -> StepResult
 drain outcome =
+    let
+        drainMachine m =
+            let
+                flushed =
+                    State.flushUpperWindow m
+            in
+            ( List.reverse flushed.output, { flushed | output = [] } )
+    in
     case outcome of
         Execute.Continue m ->
-            Continue (List.reverse m.output) (clearOutput m)
+            let ( events, cleaned ) = drainMachine m in
+            Continue events cleaned
 
         Execute.NeedInput req m ->
-            NeedInput req (List.reverse m.output) (clearOutput m)
+            let ( events, cleaned ) = drainMachine m in
+            NeedInput req events cleaned
 
         Execute.NeedSave snap m ->
-            NeedSave snap (List.reverse m.output) (clearOutput m)
+            let ( events, cleaned ) = drainMachine m in
+            NeedSave snap events cleaned
 
         Execute.NeedRestore m ->
-            NeedRestore (List.reverse m.output) (clearOutput m)
+            let ( events, cleaned ) = drainMachine m in
+            NeedRestore events cleaned
 
         Execute.Halted m ->
-            Halted (List.reverse m.output) (clearOutput m)
+            let ( events, cleaned ) = drainMachine m in
+            Halted events cleaned
 
         Execute.Error err m ->
-            Error err (List.reverse m.output) (clearOutput m)
-
-
-clearOutput : ZMachine -> ZMachine
-clearOutput machine =
-    { machine | output = [] }
+            let ( events, cleaned ) = drainMachine m in
+            Error err events cleaned

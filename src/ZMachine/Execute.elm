@@ -315,7 +315,7 @@ execute instr nextPC ops machine =
                 ( str, _ ) =
                     Text.decodeZString arg0 m.memory
             in
-            Continue (State.appendOutput (Types.PrintText str) m)
+            Continue (State.outputText str m)
 
         Op1 CallS1 ->
             executeCall instr arg0 [] m
@@ -337,7 +337,7 @@ execute instr nextPC ops machine =
                 ( str, _ ) =
                     Text.decodeZString (Memory.unpackAddress arg0 m.memory) m.memory
             in
-            Continue (State.appendOutput (Types.PrintText str) m)
+            Continue (State.outputText str m)
 
         Op1 Load ->
             let
@@ -369,7 +369,7 @@ execute instr nextPC ops machine =
                         str =
                             Text.decodeZStringWords words m.memory
                     in
-                    Continue (State.appendOutput (Types.PrintText str) m)
+                    Continue (State.outputText str m)
 
                 Nothing ->
                     Continue m
@@ -383,8 +383,8 @@ execute instr nextPC ops machine =
 
                         m2 =
                             m
-                                |> State.appendOutput (Types.PrintText str)
-                                |> State.appendOutput Types.NewLine
+                                |> State.outputText str
+                                |> State.outputNewLine
                     in
                     executeReturn 1 m2
 
@@ -453,7 +453,7 @@ execute instr nextPC ops machine =
             Halted m
 
         Op0 NewLine ->
-            Continue (State.appendOutput Types.NewLine m)
+            Continue (State.outputNewLine m)
 
         Op0 ShowStatus ->
             executeShowStatus m
@@ -486,10 +486,10 @@ execute instr nextPC ops machine =
             executeSread ops { m | pc = machine.pc }
 
         OpVar PrintChar ->
-            Continue (State.appendOutput (Types.PrintText (String.fromChar (Text.zsciiToChar arg0))) m)
+            Continue (State.outputText (String.fromChar (Text.zsciiToChar arg0)) m)
 
         OpVar PrintNum ->
-            Continue (State.appendOutput (Types.PrintText (String.fromInt (toSignedInt16 arg0))) m)
+            Continue (State.outputText (String.fromInt (toSignedInt16 arg0)) m)
 
         OpVar Random ->
             executeRandom instr ops m
@@ -505,7 +505,7 @@ execute instr nextPC ops machine =
             Continue (writeIndirect arg0 val m2)
 
         OpVar SplitWindow ->
-            Continue (State.appendOutput (Types.SplitWindow arg0) m)
+            Continue (State.splitWindow arg0 m)
 
         OpVar SetWindow ->
             let
@@ -516,15 +516,20 @@ execute instr nextPC ops machine =
                     else
                         Types.Upper
             in
-            Continue (State.appendOutput (Types.SetWindow win) m)
+            Continue (State.setWindow win m)
 
         OpVar OutputStream ->
-            -- Minimal: just track stream 2 (transcript) toggle
             let
                 streamNum =
                     toSignedInt16 arg0
             in
-            if streamNum == 2 then
+            if streamNum == 3 then
+                Continue (State.pushStream3 arg1 m)
+
+            else if streamNum == -3 then
+                Continue (State.popStream3 m)
+
+            else if streamNum == 2 then
                 Continue (setStream2 True m)
 
             else if streamNum == -2 then
@@ -544,16 +549,25 @@ execute instr nextPC ops machine =
             executeCall instr arg0 (List.drop 1 ops) m
 
         OpVar EraseWindow ->
-            Continue m
+            Continue (State.eraseWindow (toSignedInt16 arg0) m)
 
         OpVar EraseLine ->
-            Continue m
+            Continue (State.eraseLine arg0 m)
 
         OpVar SetCursor ->
-            Continue m
+            Continue (State.setCursor arg0 arg1 m)
 
         OpVar GetCursor ->
-            Continue m
+            let
+                ( row, col ) =
+                    State.getCursor m
+
+                mem =
+                    m.memory
+                        |> Memory.writeWord arg0 row
+                        |> Memory.writeWord (arg0 + Memory.wordLength) col
+            in
+            Continue { m | memory = mem }
 
         OpVar SetTextStyle ->
             Continue (State.appendOutput (Types.SetTextStyle arg0) m)
@@ -1005,7 +1019,7 @@ executePrintObj ops machine =
         name =
             ObjectTable.shortName (operandAt 0 ops) machine.memory
     in
-    Continue (State.appendOutput (Types.PrintText name) machine)
+    Continue (State.outputText name machine)
 
 
 
@@ -1419,11 +1433,11 @@ printTableRows addr width height skip row machine =
                     |> String.fromList
 
             m1 =
-                State.appendOutput (Types.PrintText text) machine
+                State.outputText text machine
 
             m2 =
                 if row < height - 1 then
-                    State.appendOutput Types.NewLine m1
+                    State.outputNewLine m1
 
                 else
                     m1

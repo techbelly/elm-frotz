@@ -165,21 +165,25 @@ formatOutput events =
                         Just "\n"
 
                     ShowStatusLine status ->
-                        let
-                            right =
-                                case status.mode of
-                                    ScoreAndTurns score turns ->
-                                        "Score: " ++ String.fromInt score ++ " Turns: " ++ String.fromInt turns
-
-                                    TimeOfDay hours minutes ->
-                                        "Time: " ++ String.fromInt hours ++ ":" ++ String.padLeft 2 '0' (String.fromInt minutes)
-                        in
-                        Just ("[Status: " ++ status.locationName ++ " | " ++ right ++ "]\n")
+                        Just ("[Status: " ++ formatStatusLine status ++ "]\n")
 
                     _ ->
                         Nothing
             )
         |> String.concat
+
+
+formatStatusLine : { a | locationName : String, mode : StatusLineMode } -> String
+formatStatusLine status =
+    case status.mode of
+        ScoreAndTurns score turns ->
+            status.locationName ++ " | Score: " ++ String.fromInt score ++ " Turns: " ++ String.fromInt turns
+
+        TimeOfDay hours minutes ->
+            status.locationName ++ " | Time: " ++ String.fromInt hours ++ ":" ++ String.padLeft 2 '0' (String.fromInt minutes)
+
+        ScreenRows rows ->
+            String.join " | " rows
 
 
 errorToString : ZMachineError -> String

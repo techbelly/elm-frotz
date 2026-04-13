@@ -1,5 +1,6 @@
 module ZMachine.Types exposing
     ( ZMachine
+    , UpperWindow
     , Memory
     , CallFrame
     , Snapshot
@@ -35,6 +36,8 @@ Import this module to pattern match on result types:
 
 -}
 
+import Array exposing (Array)
+import Dict exposing (Dict)
 import ZMachine.Memory
 import ZMachine.Snapshot
 import ZMachine.Stack
@@ -73,7 +76,24 @@ type alias ZMachine =
     , callStack : List CallFrame
     , output : List OutputEvent
     , outputStreams : { stream1 : Bool, stream2 : Bool }
+    , stream3Stack : List { tableAddr : Int, count : Int }
     , randomState : { seed : Int, count : Int }
+    , currentWindow : Window
+    , upperWindow : UpperWindow
+    }
+
+
+{-| Virtual upper window state. V5 games draw the status line by
+writing directly to the upper window with cursor positioning. The
+interpreter tracks this internally and emits a `ShowStatusLine` event
+when the game switches back to the lower window.
+-}
+type alias UpperWindow =
+    { height : Int
+    , rows : Dict Int (Array Char)
+    , cursorRow : Int
+    , cursorCol : Int
+    , width : Int
     }
 
 
@@ -154,11 +174,9 @@ type InputRequest
   - `PrintText` — display a string.
   - `NewLine` — insert a line break.
   - `ShowStatusLine` — update the status bar with a [`StatusLine`](#StatusLine).
-  - `SplitWindow` — split the screen (number of lines for the upper window).
-  - `SetWindow` — switch to a [`Window`](#Window).
-  - `EraseWindow` — erase a window (−1 = unsplit and clear, −2 = clear all).
-  - `SetCursor` — move the cursor (row, column) in the upper window.
   - `SetBufferMode` — enable or disable word-wrap buffering.
+  - `SetTextStyle` — change text style (bold, italic, etc.).
+  - `SetColour` — change foreground/background colours.
   - `PlaySound` — play a sound effect by number.
 
 -}
@@ -166,32 +184,31 @@ type OutputEvent
     = PrintText String
     | NewLine
     | ShowStatusLine StatusLine
-    | SplitWindow Int
-    | SetWindow Window
-    | EraseWindow Int
-    | SetCursor Int Int
     | SetBufferMode Bool
     | SetTextStyle Int
     | SetColour Int Int
     | PlaySound Int
 
 
-{-| Whether the game tracks score/turns or a clock.
+{-| How the status line content is provided.
 
-  - `ScoreAndTurns score turns` — a score game.
-  - `TimeOfDay hours minutes` — a time game (hours 0–23, minutes 0–59).
+  - `ScoreAndTurns score turns` — V3 score game.
+  - `TimeOfDay hours minutes` — V3 time game (hours 0–23, minutes 0–59).
+  - `ScreenRows rows` — V5+ game that draws its own status area.
+    Each string is one rendered row of the upper window, trimmed.
 
 -}
 type StatusLineMode
     = ScoreAndTurns Int Int
     | TimeOfDay Int Int
+    | ScreenRows (List String)
 
 
 {-| Status line data shown at the top of the screen.
 
   - `locationId` — the object number of the current location.
   - `locationName` — the short name of the current location.
-  - `mode` — score/turns or time, depending on the game.
+  - `mode` — score/turns, time, or raw screen rows depending on version.
 
 -}
 type alias StatusLine =

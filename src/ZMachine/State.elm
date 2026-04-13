@@ -1,11 +1,22 @@
 module ZMachine.State exposing
     ( appendOutput
+    , eraseLine
+    , eraseWindow
     , init
+    , outputText
+    , outputNewLine
     , peekStack
     , pokeStack
     , popStack
     , pushStack
     , readVariable
+    , setCursor
+    , getCursor
+    , setWindow
+    , splitWindow
+    , flushUpperWindow
+    , pushStream3
+    , popStream3
     , writeVariable
     )
 
@@ -22,7 +33,9 @@ import ZMachine.Opcode exposing (VariableRef(..))
 import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Header as Header
 import ZMachine.Stack
-import ZMachine.Types exposing (OutputEvent, ZMachine)
+import ZMachine.StatusLine as StatusLine
+import ZMachine.Types exposing (OutputEvent(..), StatusLineMode(..), Window(..), ZMachine)
+import ZMachine.Window as Window
 
 
 {-| Initialize a Z-Machine from a loaded story file.
@@ -58,7 +71,10 @@ init mem =
     , callStack = []
     , output = []
     , outputStreams = { stream1 = True, stream2 = False }
+    , stream3Stack = []
     , randomState = { seed = 12345, count = 0 }
+    , currentWindow = Lower
+    , upperWindow = Window.empty 80
     }
 
 
@@ -183,4 +199,193 @@ chronological order.
 appendOutput : OutputEvent -> ZMachine -> ZMachine
 appendOutput event machine =
     { machine | output = event :: machine.output }
+
+
+
+-- STREAM 3 (MEMORY TABLE)
+
+
+{-| Start redirecting output to a memory table. The table format is:
+word 0 = character count (written on pop), then ZSCII bytes follow.
+-}
+pushStream3 : Int -> ZMachine -> ZMachine
+pushStream3 tableAddr machine =
+    { machine
+        | stream3Stack = { tableAddr = tableAddr, count = 0 } :: machine.stream3Stack
+    }
+
+
+{-| Stop redirecting output to memory. Writes the character count
+to the first word of the table.
+-}
+popStream3 : ZMachine -> ZMachine
+popStream3 machine =
+    case machine.stream3Stack of
+        entry :: rest ->
+            { machine
+                | memory = Memory.writeWord entry.tableAddr entry.count machine.memory
+                , stream3Stack = rest
+            }
+
+        [] ->
+            machine
+
+
+
+-- UPPER WINDOW / SCREEN
+
+
+{-| Output text, routing to stream 3 (memory table), the upper window
+grid, or the lower window output list.
+-}
+outputText : String -> ZMachine -> ZMachine
+outputText str machine =
+    case machine.stream3Stack of
+        entry :: rest ->
+            -- Stream 3 active: write characters to memory table
+            let
+                chars =
+                    String.toList str
+
+                ( mem, newCount ) =
+                    List.foldl
+                        (\ch ( m, n ) ->
+                            case charToZscii ch of
+                                Just code ->
+                                    ( Memory.writeByte (entry.tableAddr + 2 + n) code m
+                                    , n + 1
+                                    )
+
+                                Nothing ->
+                                    ( m, n )
+                        )
+                        ( machine.memory, entry.count )
+                        chars
+            in
+            { machine
+                | memory = mem
+                , stream3Stack = { entry | count = newCount } :: rest
+            }
+
+        [] ->
+            case machine.currentWindow of
+                Lower ->
+                    appendOutput (PrintText str) machine
+
+                Upper ->
+                    { machine | upperWindow = Window.printText str machine.upperWindow }
+
+
+{-| Output a newline, routing to stream 3, upper window, or lower window.
+-}
+outputNewLine : ZMachine -> ZMachine
+outputNewLine machine =
+    case machine.stream3Stack of
+        entry :: rest ->
+            -- Stream 3: write ZSCII 13 (newline) to memory table
+            let
+                mem =
+                    Memory.writeByte (entry.tableAddr + 2 + entry.count) 13 machine.memory
+            in
+            { machine
+                | memory = mem
+                , stream3Stack = { entry | count = entry.count + 1 } :: rest
+            }
+
+        [] ->
+            case machine.currentWindow of
+                Lower ->
+                    appendOutput NewLine machine
+
+                Upper ->
+                    { machine | upperWindow = Window.newLine machine.upperWindow }
+
+
+charToZscii : Char -> Maybe Int
+charToZscii ch =
+    if ch == '\n' then
+        Just 13
+
+    else
+        let
+            code =
+                Char.toCode ch
+        in
+        if code >= 32 && code <= 126 then
+            Just code
+
+        else
+            Nothing
+
+
+{-| Split the screen, allocating lines for the upper window.
+In V5+, this resets the upper window cursor to (1,1).
+-}
+splitWindow : Int -> ZMachine -> ZMachine
+splitWindow height machine =
+    { machine | upperWindow = Window.split height machine.upperWindow }
+
+
+{-| Switch to the given window.
+-}
+setWindow : Window -> ZMachine -> ZMachine
+setWindow win machine =
+    { machine | currentWindow = win }
+
+
+{-| Set the cursor position in the upper window (1-based row and column).
+-}
+setCursor : Int -> Int -> ZMachine -> ZMachine
+setCursor row col machine =
+    { machine | upperWindow = Window.setCursor row col machine.upperWindow }
+
+
+{-| Get the current cursor position as (row, col), 1-based.
+-}
+getCursor : ZMachine -> ( Int, Int )
+getCursor machine =
+    Window.getCursor machine.upperWindow
+
+
+{-| Erase a window. For the upper window (1, -1, -2), clears the grid.
+-}
+eraseWindow : Int -> ZMachine -> ZMachine
+eraseWindow win machine =
+    { machine | upperWindow = Window.eraseWindow win machine.upperWindow }
+
+
+{-| Erase from the cursor to the end of the current line in the upper
+window (when value is 1). Fills with spaces.
+-}
+eraseLine : Int -> ZMachine -> ZMachine
+eraseLine value machine =
+    { machine | upperWindow = Window.eraseLine value machine.upperWindow }
+
+
+{-| Render the upper window grid into a ShowStatusLine event and
+append it to the output list. The grid content is preserved (a real
+terminal keeps upper window content visible).
+-}
+flushUpperWindow : ZMachine -> ZMachine
+flushUpperWindow machine =
+    let
+        rows =
+            Window.render machine.upperWindow
+
+        base =
+            StatusLine.build machine
+    in
+    case rows of
+        [] ->
+            machine
+
+        _ ->
+            appendOutput
+                (ShowStatusLine
+                    { locationId = base.locationId
+                    , locationName = base.locationName
+                    , mode = ScreenRows rows
+                    }
+                )
+                machine
 

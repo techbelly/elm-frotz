@@ -1011,7 +1011,11 @@ executePrintObj ops machine =
 
 executeShowStatus : ZMachine -> Outcome
 executeShowStatus machine =
-    Continue (State.appendOutput (Types.ShowStatusLine (StatusLine.build machine)) machine)
+    if (Memory.profile machine.memory).hasStatusLine then
+        Continue (State.appendOutput (Types.ShowStatusLine (StatusLine.build machine)) machine)
+
+    else
+        Continue machine
 
 
 
@@ -1037,7 +1041,12 @@ executeSread ops machine =
             , parseBufferAddr = parseBufAddr
             }
         )
-        (State.appendOutput (Types.ShowStatusLine (StatusLine.build machine)) machine)
+        (if (Memory.profile machine.memory).hasStatusLine then
+            State.appendOutput (Types.ShowStatusLine (StatusLine.build machine)) machine
+
+         else
+            machine
+        )
 
 
 

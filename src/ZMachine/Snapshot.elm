@@ -307,7 +307,7 @@ nativeMagic =
 
 nativeVersion : Int
 nativeVersion =
-    2
+    3
 
 
 {-| Encode a snapshot as bytes using the interpreter's native format.
@@ -438,6 +438,7 @@ encodeFrame frame =
         [ BE.unsignedInt32 Bytes.BE frame.returnPC
         , encodeStoreRef frame.returnStore
         , BE.unsignedInt8 (Array.length frame.locals)
+        , BE.unsignedInt8 frame.argCount
         , BE.sequence (Array.toList frame.locals |> List.map encodeWord)
         , encodeLengthPrefixed encodeWord frame.evalStack
         ]
@@ -559,18 +560,22 @@ decodeFrame =
         (BD.unsignedInt32 Bytes.BE)
         decodeStoreRef
         BD.unsignedInt8
-        |> BD.andThen decodeFrameBody
+        |> BD.andThen
+            (\( rpc, sr, ll ) ->
+                BD.unsignedInt8
+                    |> BD.andThen (\ac -> decodeFrameBody rpc sr ll ac)
+            )
 
 
-decodeFrameBody : ( Int, Maybe VariableRef, Int ) -> BD.Decoder CallFrame
-decodeFrameBody ( returnPC, storeRef, localsLen ) =
+decodeFrameBody : Int -> Maybe VariableRef -> Int -> Int -> BD.Decoder CallFrame
+decodeFrameBody returnPC storeRef localsLen argCount =
     BD.map2
         (\locals evalStack ->
             { returnPC = returnPC
             , returnStore = storeRef
             , locals = locals
             , evalStack = evalStack
-            , argCount = 0
+            , argCount = argCount
             }
         )
         (repeatDecoder localsLen (BD.unsignedInt16 Bytes.BE)

@@ -4,7 +4,7 @@ module ZMachine.Header exposing
     , staticMemoryBase, abbreviationsTableAddress
     , fileLength, checksum, releaseNumber, serialNumber, standardRevision
     , Flag1(..), Flag2(..), testFlag1, testFlag2, setFlag2, clearFlag2
-    , setInterpreterInfo, setScreenSize, setStandardRevision
+    , setInterpreterInfo, setScreenSize, setScreenSizeUnits, setDefaultColours, setStandardRevision
     )
 
 {-| Accessors for the 64-byte Z-Machine header.
@@ -18,7 +18,7 @@ and some fields are writable).
 @docs staticMemoryBase, abbreviationsTableAddress
 @docs fileLength, checksum, releaseNumber, serialNumber, standardRevision
 @docs Flag1, Flag2, testFlag1, testFlag2, setFlag2, clearFlag2
-@docs setInterpreterInfo, setScreenSize, setStandardRevision
+@docs setInterpreterInfo, setScreenSize, setScreenSizeUnits, setDefaultColours, setStandardRevision
 
 -}
 
@@ -239,6 +239,29 @@ setScreenSize height width mem =
     mem
         |> Memory.writeByte 0x20 height
         |> Memory.writeByte 0x21 width
+
+
+{-| Write V5 screen dimensions in units and font size into the header.
+For a character-cell display, units = characters and font size = 1×1.
+-}
+setScreenSizeUnits : { widthUnits : Int, heightUnits : Int, fontWidth : Int, fontHeight : Int } -> Memory -> Memory
+setScreenSizeUnits dims mem =
+    mem
+        |> Memory.writeWord 0x22 dims.widthUnits
+        |> Memory.writeWord 0x24 dims.heightUnits
+        |> Memory.writeByte 0x26 dims.fontWidth
+        |> Memory.writeByte 0x27 dims.fontHeight
+
+
+{-| Write default background and foreground colours into the header (V5+).
+Z-Machine colour numbers: 2=black, 3=red, 4=green, 5=yellow, 6=blue,
+7=magenta, 8=cyan, 9=white.
+-}
+setDefaultColours : Int -> Int -> Memory -> Memory
+setDefaultColours background foreground mem =
+    mem
+        |> Memory.writeByte 0x2C background
+        |> Memory.writeByte 0x2D foreground
 
 
 {-| Write the standard revision number this interpreter conforms to.

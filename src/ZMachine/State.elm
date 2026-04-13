@@ -34,11 +34,22 @@ init mem =
             Header.initialPC mem
 
         -- Set interpreter metadata in header
-        configuredMem =
+        baseMem =
             mem
                 |> Header.setInterpreterInfo 6 (Char.toCode 'A')
                 |> Header.setScreenSize 25 80
                 |> Header.setStandardRevision 1 1
+
+        configuredMem =
+            case (Memory.profile mem).version of
+                Memory.V5 ->
+                    baseMem
+                        |> Header.setScreenSizeUnits
+                            { widthUnits = 80, heightUnits = 25, fontWidth = 1, fontHeight = 1 }
+                        |> Header.setDefaultColours 9 2
+
+                Memory.V3 ->
+                    baseMem
     in
     { memory = configuredMem
     , originalMemory = mem

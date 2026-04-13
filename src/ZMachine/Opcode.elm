@@ -115,6 +115,7 @@ type Op1
     | PrintPaddr
     | Load
     | Not
+    | CallN1
     | Unknown1Op Int
 
 
@@ -263,9 +264,10 @@ op2FromNumber n =
 
 
 {-| Decode a raw 1OP opcode number.
+In V5, opcode 15 is `call_1n` instead of `not`.
 -}
-op1FromNumber : Int -> Op1
-op1FromNumber n =
+op1FromNumber : Memory.Version -> Int -> Op1
+op1FromNumber version n =
     case n of
         0 -> Jz
         1 -> GetSibling
@@ -282,7 +284,10 @@ op1FromNumber n =
         12 -> Jump
         13 -> PrintPaddr
         14 -> Load
-        15 -> Not
+        15 ->
+            case version of
+                Memory.V3 -> Not
+                Memory.V5 -> CallN1
         _ -> Unknown1Op n
 
 
@@ -402,7 +407,6 @@ storesResult version opcode =
         OpVar ReadChar -> True
         OpVar ScanTable -> True
         OpVar NotV5 -> True
-        OpVar CheckArgCount -> True
         OpVar Sread ->
             case version of
                 Memory.V5 -> True

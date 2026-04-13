@@ -80,7 +80,7 @@ decodeShort pc opcodeByte mem =
         -- 1OP
         let
             opcode =
-                Op1 (Opcode.op1FromNumber opcodeNum)
+                Op1 (Opcode.op1FromNumber (Memory.profile mem).version opcodeNum)
 
             ( operand, nextPos ) =
                 readOperandByType opType pos mem

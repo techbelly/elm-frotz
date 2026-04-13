@@ -9,7 +9,8 @@
         "run-harness": "node harness/run.js",
         "test-elm": "elm-test",
         "test-czech": "npm run build-harness && node harness/run.js testing/compliance/czech.z3 < /dev/null > /tmp/czech-run.log && cat /tmp/czech-run.log && grep -q 'Failed: 0' /tmp/czech-run.log",
-        "test": "npm run test-elm && npm run test-czech",
+        "test-czech5": "npm run build-harness && node harness/run.js testing/compliance/czech.z5 < /dev/null > /tmp/czech5-run.log && cat /tmp/czech5-run.log && grep -q 'Failed: 0' /tmp/czech5-run.log",
+        "test": "npm run test-elm && npm run test-czech && npm run test-czech5",
         "bench": "npm run build-harness && node --expose-gc harness/bench.js",
         "review": "elm-review"
     },

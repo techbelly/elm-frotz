@@ -516,10 +516,7 @@ makeV3WithProperty { objNum, propNum, dataLen, dataBytes } =
 
         -- Property table: name len (1 byte) = 0, then property, then terminator
         propBytes =
-            [ 0 ]
-                ++ [ sizeByte ]
-                ++ dataBytes
-                ++ [ 0 ]
+            0 :: sizeByte :: dataBytes ++ [ 0 ]
 
         base =
             List.repeat totalSize 0
@@ -559,10 +556,7 @@ makeV5WithProperty { objNum, headerBytes, dataBytes } =
 
         -- Property table: name len (1 byte) = 0, then property, then terminator
         propBytes =
-            [ 0 ]
-                ++ headerBytes
-                ++ dataBytes
-                ++ [ 0 ]
+            0 :: headerBytes ++ dataBytes ++ [ 0 ]
 
         base =
             List.repeat totalSize 0
@@ -600,10 +594,7 @@ makeV5WithPropertyLarge { objNum, headerBytes, dataBytes } =
             objTableAddr + 126 + (objNum - 1) * 14
 
         propBytes =
-            [ 0 ]
-                ++ headerBytes
-                ++ dataBytes
-                ++ [ 0 ]
+            0 :: headerBytes ++ dataBytes ++ [ 0 ]
 
         base =
             List.repeat totalSize 0

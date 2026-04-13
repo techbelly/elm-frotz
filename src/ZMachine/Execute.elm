@@ -349,6 +349,9 @@ execute instr nextPC ops machine =
         Op1 Not ->
             storeResult instr (Bitwise.and (Bitwise.complement arg0) 0xFFFF) m
 
+        Op1 CallN1 ->
+            executeCall instr arg0 [] m
+
         Op1 (Opcode.Unknown1Op n) ->
             Error (InvalidOpcode n) m
 

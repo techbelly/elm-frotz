@@ -6,7 +6,7 @@ module ZMachine.Types exposing
     , Snapshot
     , StepResult(..)
     , OutputEvent(..)
-    , InputRequest(..)
+    , LineInputInfo
     , ZMachineError(..)
     , StatusLine
     , StatusLineMode(..)
@@ -17,7 +17,7 @@ module ZMachine.Types exposing
 
 Import this module to pattern match on result types:
 
-    import ZMachine.Types exposing (StepResult(..), OutputEvent(..), InputRequest(..))
+    import ZMachine.Types exposing (StepResult(..), OutputEvent(..))
 
 
 # Machine State
@@ -27,7 +27,7 @@ Import this module to pattern match on result types:
 
 # Step Results
 
-@docs StepResult, ZMachineError, InputRequest
+@docs StepResult, ZMachineError, LineInputInfo
 
 
 # Output
@@ -109,6 +109,8 @@ to manage output state themselves.
     [`ZMachine.runSteps`](ZMachine#runSteps) again to keep going.
   - `NeedInput` — the machine is waiting for a line of player input.
     Call [`ZMachine.provideInput`](ZMachine#provideInput) to resume.
+  - `NeedChar` — the machine is waiting for a single keypress.
+    Call [`ZMachine.provideChar`](ZMachine#provideChar) to resume.
   - `NeedSave` — the story executed a `save` opcode. The attached
     snapshot captures the state to be persisted; call
     [`ZMachine.provideSaveResult`](ZMachine#provideSaveResult) to resume.
@@ -121,7 +123,8 @@ to manage output state themselves.
 -}
 type StepResult
     = Continue (List OutputEvent) ZMachine
-    | NeedInput InputRequest (List OutputEvent) ZMachine
+    | NeedInput LineInputInfo (List OutputEvent) ZMachine
+    | NeedChar (List OutputEvent) ZMachine
     | NeedSave Snapshot (List OutputEvent) ZMachine
     | NeedRestore (List OutputEvent) ZMachine
     | Halted (List OutputEvent) ZMachine
@@ -143,30 +146,14 @@ type ZMachineError
     | InvalidVariable Int
 
 
-{-| What kind of input the machine needs.
-
-  - `LineInput` — the `sread`/`aread` opcode wants a line of text.
-  - `CharInput` — the `read_char` opcode wants a single keypress.
-
-<!-- -->
-
-    case result of
-        NeedInput (LineInput info) _ _ ->
-            -- prompt the player, then call ZMachine.provideInput
-            ...
-
-        NeedInput (CharInput info) _ _ ->
-            -- read a single character, then call ZMachine.provideCharInput
-            ...
-
+{-| Metadata about a line-input request from `sread`/`aread`.
+Carried by the `NeedInput` variant of `StepResult`.
 -}
-type InputRequest
-    = LineInput
-        { maxLength : Int
-        , textBufferAddr : Int
-        , parseBufferAddr : Int
-        }
-    | CharInput
+type alias LineInputInfo =
+    { maxLength : Int
+    , textBufferAddr : Int
+    , parseBufferAddr : Int
+    }
 
 
 {-| Structured output events for the host to render.

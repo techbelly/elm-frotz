@@ -2,7 +2,7 @@ module ZMachine exposing
     ( ZMachine
     , StepResult
     , OutputEvent
-    , InputRequest
+    , LineInputInfo
     , ZMachineError
     , StatusLine
     , Window
@@ -11,6 +11,7 @@ module ZMachine exposing
     , step
     , runSteps
     , provideInput
+    , provideChar
     , provideSaveResult
     , provideRestoreResult
     , snapshot
@@ -25,7 +26,7 @@ result types, also import the constructors from
 [`ZMachine.Types`](ZMachine-Types):
 
     import ZMachine exposing (load, runSteps, provideInput)
-    import ZMachine.Types exposing (StepResult(..), OutputEvent(..), InputRequest(..))
+    import ZMachine.Types exposing (StepResult(..), OutputEvent(..))
 
 Each [`StepResult`](ZMachine-Types#StepResult) variant carries the
 output events accumulated during the call that produced it, so the
@@ -34,7 +35,7 @@ host never needs to inspect the machine's output buffer directly.
 
 # Types
 
-@docs ZMachine, StepResult, OutputEvent, InputRequest, ZMachineError, StatusLine, Window, Snapshot
+@docs ZMachine, StepResult, OutputEvent, LineInputInfo, ZMachineError, StatusLine, Window, Snapshot
 
 
 # Loading
@@ -44,7 +45,7 @@ host never needs to inspect the machine's output buffer directly.
 
 # Running
 
-@docs step, runSteps, provideInput
+@docs step, runSteps, provideInput, provideChar
 
 
 # Save and restore
@@ -87,10 +88,11 @@ type alias OutputEvent =
     ZMachine.Types.OutputEvent
 
 
-{-| What kind of input the machine needs.
+{-| Metadata about a line-input request. Carried by the `NeedInput`
+variant of `StepResult`.
 -}
-type alias InputRequest =
-    ZMachine.Types.InputRequest
+type alias LineInputInfo =
+    ZMachine.Types.LineInputInfo
 
 
 {-| Errors that can halt the machine.
@@ -171,26 +173,41 @@ runSteps =
     Run.runSteps
 
 
-{-| Provide input to a machine that returned `NeedInput`.
+{-| Provide a line of input to a machine that returned `NeedInput`.
 
-For `LineInput` (sread/aread): writes the text into the story's text
-buffer, tokenizes it, and resumes execution. In V5, also stores the
-terminating character (13 for newline).
-
-For `CharInput` (read\_char): pass a single-character string. The
-ZSCII code of the first character is stored as the result.
+Writes the text into the story's text buffer, tokenizes it, and
+resumes execution. In V5, also stores the terminating character (13
+for newline).
 
     case ZMachine.runSteps 10000 machine of
-        NeedInput request _ machineWithOutput ->
-            ZMachine.provideInput "open mailbox" request machineWithOutput
+        NeedInput info _ machineWithOutput ->
+            ZMachine.provideInput "open mailbox" info machineWithOutput
 
         _ ->
             ...
 
 -}
-provideInput : String -> InputRequest -> ZMachine -> StepResult
+provideInput : String -> LineInputInfo -> ZMachine -> StepResult
 provideInput =
     Run.provideInput
+
+
+{-| Provide a character to a machine that returned `NeedChar`.
+
+Pass a single-character string — only the first character is used.
+The ZSCII code is stored as the result of the `read_char` opcode.
+
+    case ZMachine.runSteps 10000 machine of
+        NeedChar _ machineWithOutput ->
+            ZMachine.provideChar "y" machineWithOutput
+
+        _ ->
+            ...
+
+-}
+provideChar : String -> ZMachine -> StepResult
+provideChar =
+    Run.provideChar
 
 
 {-| Capture a snapshot of the current machine state. Safe to call any

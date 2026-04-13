@@ -44,7 +44,7 @@ import ZMachine.StatusLine as StatusLine
 import ZMachine.Text as Text
 import ZMachine.Types as Types
     exposing
-        ( InputRequest(..)
+        ( LineInputInfo
         , ZMachine
         , ZMachineError(..)
         )
@@ -59,7 +59,8 @@ stay output-agnostic.
 -}
 type Outcome
     = Continue ZMachine
-    | NeedInput InputRequest ZMachine
+    | NeedInput LineInputInfo ZMachine
+    | NeedChar ZMachine
     | NeedSave Snapshot.Snapshot ZMachine
     | NeedRestore ZMachine
     | Halted ZMachine
@@ -576,7 +577,7 @@ execute instr nextPC ops machine =
             Continue (State.appendOutput (Types.SetBufferMode (arg0 /= 0)) m)
 
         OpVar ReadChar ->
-            NeedInput CharInput { m | pc = machine.pc }
+            NeedChar { m | pc = machine.pc }
 
         OpVar ScanTable ->
             executeScanTable instr ops m
@@ -1052,12 +1053,10 @@ executeSread ops machine =
             Memory.readByte textBufAddr machine.memory
     in
     NeedInput
-        (LineInput
-            { maxLength = maxLen
-            , textBufferAddr = textBufAddr
-            , parseBufferAddr = parseBufAddr
-            }
-        )
+        { maxLength = maxLen
+        , textBufferAddr = textBufAddr
+        , parseBufferAddr = parseBufAddr
+        }
         (if (Memory.profile machine.memory).hasStatusLine then
             State.appendOutput (Types.ShowStatusLine (StatusLine.build machine)) machine
 

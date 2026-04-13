@@ -4,7 +4,7 @@ import Bytes exposing (Bytes)
 import Bytes.Encode
 import Platform
 import ZMachine
-import ZMachine.Types exposing (InputRequest(..), OutputEvent(..), StatusLineMode(..), StepResult(..), ZMachineError(..))
+import ZMachine.Types exposing (LineInputInfo, OutputEvent(..), StatusLineMode(..), StepResult(..), ZMachineError(..))
 
 
 port storyLoaded : (List Int -> msg) -> Sub msg
@@ -30,8 +30,13 @@ port resume : (() -> msg) -> Sub msg
 
 type alias Model =
     { machine : Maybe ZMachine
-    , waitingForInput : Maybe InputRequest
+    , waitingFor : Maybe WaitingFor
     }
+
+
+type WaitingFor
+    = WaitingForLine LineInputInfo
+    | WaitingForChar
 
 
 type alias ZMachine =
@@ -47,7 +52,7 @@ type Msg
 main : Program () Model Msg
 main =
     Platform.worker
-        { init = \_ -> ( { machine = Nothing, waitingForInput = Nothing }, Cmd.none )
+        { init = \_ -> ( { machine = Nothing, waitingFor = Nothing }, Cmd.none )
         , update = update
         , subscriptions = subscriptions
         }
@@ -81,18 +86,12 @@ update msg model =
                     runMachine machine
 
         InputReceived text ->
-            case ( model.machine, model.waitingForInput ) of
-                ( Just machine, Just req ) ->
-                    let
-                        input =
-                            case req of
-                                CharInput ->
-                                    String.left 1 text
+            case ( model.machine, model.waitingFor ) of
+                ( Just machine, Just (WaitingForLine info) ) ->
+                    handleResult (ZMachine.provideInput text info machine) model
 
-                                _ ->
-                                    text
-                    in
-                    handleResult (ZMachine.provideInput input req machine) model
+                ( Just machine, Just WaitingForChar ) ->
+                    handleResult (ZMachine.provideChar (String.left 1 text) machine) model
 
                 _ ->
                     -- The harness does not yet implement file-backed save/restore;
@@ -117,7 +116,7 @@ runMachine machine =
         result =
             ZMachine.runSteps 100000 machine
     in
-    handleResult result { machine = Just machine, waitingForInput = Nothing }
+    handleResult result { machine = Just machine, waitingFor = Nothing }
 
 
 handleResult : StepResult -> Model -> ( Model, Cmd Msg )
@@ -129,18 +128,14 @@ handleResult result model =
             , Cmd.batch [ output (formatOutput events), continueRunning () ]
             )
 
-        NeedInput req events m ->
-            let
-                prompt =
-                    case req of
-                        CharInput ->
-                            "CHAR"
+        NeedInput info events m ->
+            ( { model | machine = Just m, waitingFor = Just (WaitingForLine info) }
+            , Cmd.batch [ output (formatOutput events), requestInput "" ]
+            )
 
-                        _ ->
-                            ""
-            in
-            ( { model | machine = Just m, waitingForInput = Just req }
-            , Cmd.batch [ output (formatOutput events), requestInput prompt ]
+        NeedChar events m ->
+            ( { model | machine = Just m, waitingFor = Just WaitingForChar }
+            , Cmd.batch [ output (formatOutput events), requestInput "CHAR" ]
             )
 
         NeedSave _ events m ->

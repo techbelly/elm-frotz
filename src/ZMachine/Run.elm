@@ -2,13 +2,14 @@ module ZMachine.Run exposing
     ( step
     , runSteps
     , provideInput
+    , provideChar
     , provideSaveResult
     , provideRestoreResult
     )
 
 {-| High-level run loop for the Z-Machine.
 
-@docs step, runSteps, provideInput, provideSaveResult, provideRestoreResult
+@docs step, runSteps, provideInput, provideChar, provideSaveResult, provideRestoreResult
 
 -}
 
@@ -20,7 +21,7 @@ import ZMachine.Snapshot as Snapshot exposing (Snapshot)
 import ZMachine.State as State
 import ZMachine.Types
     exposing
-        ( InputRequest(..)
+        ( LineInputInfo
         , StepResult(..)
         , ZMachine
         )
@@ -51,60 +52,63 @@ runSteps n machine =
                 drain other
 
 
-{-| Provide a line of input to a machine waiting for input.
+{-| Provide a line of input to a machine that returned `NeedInput`.
 
 Writes the input to the text buffer, tokenizes it, writes parse results,
 and resumes execution.
 
 -}
-provideInput : String -> InputRequest -> ZMachine -> StepResult
-provideInput input request machine =
-    case request of
-        LineInput info ->
-            let
-                -- Truncate to max length
-                truncated =
-                    String.left info.maxLength input
+provideInput : String -> LineInputInfo -> ZMachine -> StepResult
+provideInput input info machine =
+    let
+        truncated =
+            String.left info.maxLength input
 
-                -- Write to text buffer and tokenize
-                mem =
-                    Dictionary.tokenize truncated info.textBufferAddr info.parseBufferAddr machine.memory
+        mem =
+            Dictionary.tokenize truncated info.textBufferAddr info.parseBufferAddr machine.memory
 
-                -- Advance PC past the sread/aread instruction (PC still points at it)
-                instr =
-                    Decode.decode machine.pc machine.memory
+        instr =
+            Decode.decode machine.pc machine.memory
 
-                nextPC =
-                    machine.pc + instr.length
+        nextPC =
+            machine.pc + instr.length
 
-                version =
-                    (Memory.profile machine.memory).version
+        version =
+            (Memory.profile machine.memory).version
 
-                advanced =
-                    { machine | memory = mem, pc = nextPC }
-            in
-            case version of
-                Memory.V5 ->
-                    -- V5 aread stores the terminating character (13 = newline)
-                    drain (Execute.storeInstr instr 13 advanced)
+        advanced =
+            { machine | memory = mem, pc = nextPC }
+    in
+    case version of
+        Memory.V5 ->
+            -- V5 aread stores the terminating character (13 = newline)
+            drain (Execute.storeInstr instr 13 advanced)
 
-                Memory.V3 ->
-                    Continue [] advanced
+        Memory.V3 ->
+            Continue [] advanced
 
-        CharInput ->
-            let
-                charCode =
-                    String.uncons input
-                        |> Maybe.map (Tuple.first >> Char.toCode)
-                        |> Maybe.withDefault 13
 
-                instr =
-                    Decode.decode machine.pc machine.memory
+{-| Provide a character to a machine that returned `NeedChar`.
 
-                nextPC =
-                    machine.pc + instr.length
-            in
-            drain (Execute.storeInstr instr charCode { machine | pc = nextPC })
+Pass a single-character string. The ZSCII code is stored into the
+result variable of the `read_char` instruction.
+
+-}
+provideChar : String -> ZMachine -> StepResult
+provideChar input machine =
+    let
+        charCode =
+            String.uncons input
+                |> Maybe.map (Tuple.first >> Char.toCode)
+                |> Maybe.withDefault 13
+
+        instr =
+            Decode.decode machine.pc machine.memory
+
+        nextPC =
+            machine.pc + instr.length
+    in
+    drain (Execute.storeInstr instr charCode { machine | pc = nextPC })
 
 
 {-| Resume a machine that returned `NeedSave`. Pass `True` if the host
@@ -201,9 +205,13 @@ drain outcome =
             let ( events, cleaned ) = drainMachine m in
             Continue events cleaned
 
-        Execute.NeedInput req m ->
+        Execute.NeedInput info m ->
             let ( events, cleaned ) = drainMachine m in
-            NeedInput req events cleaned
+            NeedInput info events cleaned
+
+        Execute.NeedChar m ->
+            let ( events, cleaned ) = drainMachine m in
+            NeedChar events cleaned
 
         Execute.NeedSave snap m ->
             let ( events, cleaned ) = drainMachine m in

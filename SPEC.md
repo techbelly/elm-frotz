@@ -34,8 +34,8 @@ The library exposes three modules:
 
 | Module | Purpose |
 |--------|---------|
-| `ZMachine` | All functions a consumer needs: `load`, `runSteps`, `provideInput`, `provideSaveResult`, `provideRestoreResult`, `snapshot`, `restoreSnapshot` |
-| `ZMachine.Types` | All types for pattern matching: `StepResult(..)`, `OutputEvent(..)`, `InputRequest(..)`, `ZMachineError(..)`, `Window(..)`, `Snapshot` |
+| `ZMachine` | All functions a consumer needs: `load`, `runSteps`, `provideInput`, `provideChar`, `provideSaveResult`, `provideRestoreResult`, `snapshot`, `restoreSnapshot` |
+| `ZMachine.Types` | All types for pattern matching: `StepResult(..)`, `OutputEvent(..)`, `LineInputInfo`, `ZMachineError(..)`, `Window(..)`, `Snapshot` |
 | `ZMachine.Snapshot` | Snapshot projection, construction, and native encode/decode — for clients building custom save schemes |
 
 Everything else (`Execute`, `Decode`, `Opcode`, `Memory`, `State`, `ObjectTable`, `Dictionary`, `Text`, `Stack`, `StatusLine`, `Header`, `Run`) is internal. Generic helpers live under `Library.*` (`ArrayExtra`, `BytesExtra`, `IntExtra`, `ListExtra`).
@@ -65,7 +65,8 @@ Elm applications cannot run infinite loops. The interpreter uses a **yield-on-ev
 ```elm
 type StepResult
     = Continue (List OutputEvent) ZMachine
-    | NeedInput InputRequest (List OutputEvent) ZMachine
+    | NeedInput LineInputInfo (List OutputEvent) ZMachine
+    | NeedChar (List OutputEvent) ZMachine
     | NeedSave Snapshot (List OutputEvent) ZMachine
     | NeedRestore (List OutputEvent) ZMachine
     | Halted (List OutputEvent) ZMachine

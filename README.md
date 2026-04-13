@@ -8,7 +8,7 @@ Two imports give you the full API:
 
 ```elm
 import ZMachine exposing (load, runSteps, provideInput)
-import ZMachine.Types exposing (StepResult(..), OutputEvent(..), InputRequest(..))
+import ZMachine.Types exposing (StepResult(..), OutputEvent(..))
 ```
 
 Load a story, run it, and handle results. Every `StepResult` variant
@@ -23,9 +23,13 @@ case ZMachine.load storyBytes of
                 -- step budget exhausted; render events, then keep going
                 ZMachine.runSteps 10000 nextMachine
 
-            NeedInput request events next ->
+            NeedInput info events next ->
                 -- render events, prompt the player, then resume
-                ZMachine.provideInput "open mailbox" request next
+                ZMachine.provideInput "open mailbox" info next
+
+            NeedChar events next ->
+                -- prompt for a single keypress, then resume
+                ZMachine.provideChar "y" next
 
             Halted events final ->
                 -- story finished

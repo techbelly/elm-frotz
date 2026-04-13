@@ -14,8 +14,7 @@ import ZMachine.State as State
 import ZMachine
 import ZMachine.Types
     exposing
-        ( InputRequest(..)
-        , StepResult(..)
+        ( StepResult(..)
         , ZMachine
         )
 
@@ -501,6 +500,9 @@ describeOutcome outcome =
         Execute.NeedInput _ _ ->
             "NeedInput"
 
+        Execute.NeedChar _ ->
+            "NeedChar"
+
         Execute.NeedSave _ _ ->
             "NeedSave"
 
@@ -522,6 +524,9 @@ describeStepResult result =
 
         NeedInput _ _ _ ->
             "NeedInput"
+
+        NeedChar _ _ ->
+            "NeedChar"
 
         NeedSave _ _ _ ->
             "NeedSave"

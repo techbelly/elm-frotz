@@ -5,6 +5,7 @@ module ZMachine.Opcode exposing
     , Op1(..)
     , Op0(..)
     , OpVar(..)
+    , OpExt(..)
     , Operand(..)
     , VariableRef(..)
     , BranchInfo
@@ -16,6 +17,7 @@ module ZMachine.Opcode exposing
     , op1FromNumber
     , op0FromNumber
     , opVarFromNumber
+    , opExtFromNumber
     , variableRefFromByte
     )
 
@@ -27,13 +29,15 @@ opcode (does it store a result, does it branch, does it carry an inline
 text literal). The actual byte-level decoding lives in
 [`ZMachine.Decode`](ZMachine-Decode).
 
-@docs Instruction, Opcode, Op2, Op1, Op0, OpVar
+@docs Instruction, Opcode, Op2, Op1, Op0, OpVar, OpExt
 @docs Operand, VariableRef, BranchInfo, BranchTarget
 @docs storesResult, branches, hasText
-@docs op2FromNumber, op1FromNumber, op0FromNumber, opVarFromNumber
+@docs op2FromNumber, op1FromNumber, op0FromNumber, opVarFromNumber, opExtFromNumber
 @docs variableRefFromByte
 
 -}
+
+import ZMachine.Memory as Memory
 
 
 {-| A fully decoded Z-Machine instruction.
@@ -55,9 +59,10 @@ type Opcode
     | Op1 Op1
     | Op0 Op0
     | OpVar OpVar
+    | OpExt OpExt
 
 
-{-| Two-operand opcodes (V3).
+{-| Two-operand opcodes.
 -}
 type Op2
     = Je
@@ -84,6 +89,10 @@ type Op2
     | Mul
     | Div
     | Mod
+    | CallS2
+    | CallN2
+    | SetColour
+    | Throw
     | Unknown2Op Int
 
 
@@ -130,7 +139,7 @@ type Op0
     | Unknown0Op Int
 
 
-{-| Variable-operand opcodes (V3).
+{-| Variable-operand opcodes.
 -}
 type OpVar
     = Call
@@ -145,10 +154,40 @@ type OpVar
     | Pull
     | SplitWindow
     | SetWindow
+    | CallVs2
+    | EraseWindow
+    | EraseLine
+    | SetCursor
+    | GetCursor
+    | SetTextStyle
+    | BufferMode
     | OutputStream
     | InputStream
     | SoundEffect
+    | ReadChar
+    | ScanTable
+    | NotV5
+    | CallVn
+    | CallVn2
+    | Tokenise
+    | EncodeText
+    | CopyTable
+    | PrintTable
+    | CheckArgCount
     | UnknownVar Int
+
+
+{-| Extended opcodes (V5+, reached via 0xBE prefix).
+-}
+type OpExt
+    = ExtSave
+    | ExtRestore
+    | LogShift
+    | ArtShift
+    | SetFont
+    | SaveUndo
+    | RestoreUndo
+    | UnknownExt Int
 
 
 {-| An instruction operand.
@@ -216,6 +255,10 @@ op2FromNumber n =
         22 -> Mul
         23 -> Div
         24 -> Mod
+        25 -> CallS2
+        26 -> CallN2
+        27 -> SetColour
+        28 -> Throw
         _ -> Unknown2Op n
 
 
@@ -283,10 +326,43 @@ opVarFromNumber n =
         9 -> Pull
         10 -> SplitWindow
         11 -> SetWindow
+        12 -> CallVs2
+        13 -> EraseWindow
+        14 -> EraseLine
+        15 -> SetCursor
+        16 -> GetCursor
+        17 -> SetTextStyle
+        18 -> BufferMode
         19 -> OutputStream
         20 -> InputStream
         21 -> SoundEffect
+        22 -> ReadChar
+        23 -> ScanTable
+        24 -> NotV5
+        25 -> CallVn
+        26 -> CallVn2
+        27 -> Tokenise
+        28 -> EncodeText
+        29 -> CopyTable
+        30 -> PrintTable
+        31 -> CheckArgCount
         _ -> UnknownVar n
+
+
+
+{-| Decode a raw EXT opcode number (V5+).
+-}
+opExtFromNumber : Int -> OpExt
+opExtFromNumber n =
+    case n of
+        0 -> ExtSave
+        1 -> ExtRestore
+        2 -> LogShift
+        3 -> ArtShift
+        4 -> SetFont
+        9 -> SaveUndo
+        10 -> RestoreUndo
+        _ -> UnknownExt n
 
 
 
@@ -294,9 +370,11 @@ opVarFromNumber n =
 
 
 {-| Does this opcode store a result into a variable?
+In V5, Save/Restore store a result instead of branching, and several
+new opcodes store results.
 -}
-storesResult : Opcode -> Bool
-storesResult opcode =
+storesResult : Memory.Version -> Opcode -> Bool
+storesResult version opcode =
     case opcode of
         Op2 Or -> True
         Op2 And -> True
@@ -310,6 +388,7 @@ storesResult opcode =
         Op2 Mul -> True
         Op2 Div -> True
         Op2 Mod -> True
+        Op2 CallS2 -> True
         Op1 GetSibling -> True
         Op1 GetChild -> True
         Op1 GetParent -> True
@@ -318,14 +397,44 @@ storesResult opcode =
         Op1 Not -> True
         Op1 CallS1 -> True
         OpVar Call -> True
+        OpVar CallVs2 -> True
         OpVar Random -> True
+        OpVar ReadChar -> True
+        OpVar ScanTable -> True
+        OpVar NotV5 -> True
+        OpVar CheckArgCount -> True
+        OpVar Sread ->
+            case version of
+                Memory.V5 -> True
+                Memory.V3 -> False
+        Op0 Save ->
+            case version of
+                Memory.V5 -> True
+                Memory.V3 -> False
+        Op0 Restore ->
+            case version of
+                Memory.V5 -> True
+                Memory.V3 -> False
+        Op0 Pop ->
+            -- In V5, 0OP:9 is catch (stores result) instead of pop
+            case version of
+                Memory.V5 -> True
+                Memory.V3 -> False
+        OpExt ExtSave -> True
+        OpExt ExtRestore -> True
+        OpExt LogShift -> True
+        OpExt ArtShift -> True
+        OpExt SetFont -> True
+        OpExt SaveUndo -> True
+        OpExt RestoreUndo -> True
         _ -> False
 
 
 {-| Does this opcode have a branch offset?
+In V5, Save/Restore no longer branch (they store instead).
 -}
-branches : Opcode -> Bool
-branches opcode =
+branches : Memory.Version -> Opcode -> Bool
+branches version opcode =
     case opcode of
         Op2 Je -> True
         Op2 Jl -> True
@@ -338,10 +447,18 @@ branches opcode =
         Op1 Jz -> True
         Op1 GetSibling -> True
         Op1 GetChild -> True
-        Op0 Save -> True
-        Op0 Restore -> True
+        Op0 Save ->
+            case version of
+                Memory.V3 -> True
+                Memory.V5 -> False
+        Op0 Restore ->
+            case version of
+                Memory.V3 -> True
+                Memory.V5 -> False
         Op0 Verify -> True
         Op0 Piracy -> True
+        OpVar ScanTable -> True
+        OpVar CheckArgCount -> True
         _ -> False
 
 

@@ -22,6 +22,7 @@ type alias CallFrame =
     , returnStore : Maybe VariableRef
     , locals : Array Int
     , evalStack : List Int
+    , argCount : Int
     }
 
 

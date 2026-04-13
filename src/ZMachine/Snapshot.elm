@@ -97,14 +97,18 @@ type alias SnapshotMeta =
 
   - `ResumeAt` — host-initiated snapshot (autosave). Execution continues
     from `pc` as if nothing happened.
-  - `ResumeByBranchTrue` — produced by the `save` opcode. Execution
+  - `ResumeByBranchTrue` — produced by the V3 `save` opcode. Execution
     re-runs the save instruction at `pc` with a success result,
     following its branch-on-true target.
+  - `ResumeByStoreResult` — produced by the V5 `ext_save` opcode.
+    Execution re-runs the save instruction at `pc`, storing a
+    non-zero result to indicate success.
 
 -}
 type ResumeKind
     = ResumeAt
     | ResumeByBranchTrue
+    | ResumeByStoreResult
 
 
 {-| Errors returned by [`restore`](#restore).
@@ -369,6 +373,9 @@ resumeKindToByte kind =
         ResumeByBranchTrue ->
             1
 
+        ResumeByStoreResult ->
+            2
+
 
 encodeSerial : String -> BE.Encoder
 encodeSerial s =
@@ -518,6 +525,9 @@ byteToResumeKind b =
         1 ->
             Ok ResumeByBranchTrue
 
+        2 ->
+            Ok ResumeByStoreResult
+
         _ ->
             Err ("Unknown resume kind byte " ++ String.fromInt b)
 
@@ -560,6 +570,7 @@ decodeFrameBody ( returnPC, storeRef, localsLen ) =
             , returnStore = storeRef
             , locals = locals
             , evalStack = evalStack
+            , argCount = 0
             }
         )
         (repeatDecoder localsLen (BD.unsignedInt16 Bytes.BE)

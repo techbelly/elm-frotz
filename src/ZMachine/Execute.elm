@@ -1,4 +1,4 @@
-module ZMachine.Execute exposing (Outcome(..), step, resumeWithBranch)
+module ZMachine.Execute exposing (Outcome(..), step, resumeWithBranch, resumeWithStore, storeInstr)
 
 {-| Z-Machine instruction execution.
 
@@ -22,6 +22,7 @@ import Library.IntExtra
         )
 import Library.ListExtra exposing (getAt)
 import ZMachine.Decode as Decode
+import ZMachine.Dictionary as Dictionary
 import ZMachine.Memory as Memory
 import ZMachine.ObjectTable as ObjectTable
 import ZMachine.Opcode as Opcode
@@ -31,6 +32,7 @@ import ZMachine.Opcode as Opcode
         , Op0(..)
         , Op1(..)
         , Op2(..)
+        , OpExt(..)
         , OpVar(..)
         , Opcode(..)
         , Operand(..)
@@ -100,6 +102,34 @@ resumeWithBranch success machine =
             { machine | pc = nextPC }
     in
     executeBranch instr success m
+
+
+{-| Re-decode the instruction at `machine.pc` and store the given value
+into its store target, advancing past the instruction. Used by the V5
+ext\_save/ext\_restore resumption paths.
+-}
+resumeWithStore : Int -> ZMachine -> Outcome
+resumeWithStore value machine =
+    let
+        instr =
+            Decode.decode machine.pc machine.memory
+
+        nextPC =
+            machine.pc + instr.length
+
+        m =
+            { machine | pc = nextPC }
+    in
+    storeResult instr value m
+
+
+{-| Store a value into the store target of an already-decoded instruction.
+The machine's PC should already be advanced past the instruction. Used by
+Run.elm for V5 aread (store terminating char) and read\_char.
+-}
+storeInstr : Opcode.Instruction -> Int -> ZMachine -> Outcome
+storeInstr instr value machine =
+    storeResult instr value machine
 
 
 
@@ -238,6 +268,23 @@ execute instr nextPC ops machine =
             else
                 storeResult instr (modInt16 arg0 arg1) m
 
+        Op2 CallS2 ->
+            executeCall instr arg0 [ arg1 ] m
+
+        Op2 CallN2 ->
+            executeCall instr arg0 [ arg1 ] m
+
+        Op2 SetColour ->
+            Continue (State.appendOutput (Types.SetColour arg0 arg1) m)
+
+        Op2 Throw ->
+            -- arg0 = return value, arg1 = frame cookie (stack depth from catch)
+            let
+                framesToDrop =
+                    List.length m.callStack - arg1
+            in
+            executeReturn arg0 { m | callStack = List.drop framesToDrop m.callStack }
+
         Op2 (Opcode.Unknown2Op n) ->
             Error (InvalidOpcode n) m
 
@@ -345,19 +392,22 @@ execute instr nextPC ops machine =
             Continue m
 
         Op0 Save ->
-            -- Suspend execution, handing a snapshot to the host. The host
-            -- persists it (Quetzal, native, or custom) and calls
-            -- `provideSaveResult` with True/False. We return `machine`
-            -- (pc still at the save opcode) so provideSaveResult can
-            -- re-decode and apply the branch.
             let
+                resumeKind =
+                    case (Memory.profile machine.memory).version of
+                        Memory.V3 ->
+                            Snapshot.ResumeByBranchTrue
+
+                        Memory.V5 ->
+                            Snapshot.ResumeByStoreResult
+
                 snap =
                     Snapshot.capture
                         { memory = machine.memory
                         , pc = machine.pc
                         , stack = machine.stack
                         , callStack = machine.callStack
-                        , resumeKind = Snapshot.ResumeByBranchTrue
+                        , resumeKind = resumeKind
                         }
             in
             NeedSave snap machine
@@ -384,11 +434,17 @@ execute instr nextPC ops machine =
             executeReturn val m2
 
         Op0 Pop ->
-            let
-                ( _, m2 ) =
-                    State.popStack m
-            in
-            Continue m2
+            case (Memory.profile machine.memory).version of
+                Memory.V3 ->
+                    let
+                        ( _, m2 ) =
+                            State.popStack m
+                    in
+                    Continue m2
+
+                Memory.V5 ->
+                    -- V5: this is "catch" — store call stack depth
+                    storeResult instr (List.length m.callStack) m
 
         Op0 Quit ->
             Halted m
@@ -481,7 +537,88 @@ execute instr nextPC ops machine =
         OpVar SoundEffect ->
             Continue (State.appendOutput (Types.PlaySound arg0) m)
 
+        OpVar CallVs2 ->
+            executeCall instr arg0 (List.drop 1 ops) m
+
+        OpVar EraseWindow ->
+            Continue m
+
+        OpVar EraseLine ->
+            Continue m
+
+        OpVar SetCursor ->
+            Continue m
+
+        OpVar GetCursor ->
+            Continue m
+
+        OpVar SetTextStyle ->
+            Continue (State.appendOutput (Types.SetTextStyle arg0) m)
+
+        OpVar BufferMode ->
+            Continue (State.appendOutput (Types.SetBufferMode (arg0 /= 0)) m)
+
+        OpVar ReadChar ->
+            NeedInput CharInput { m | pc = machine.pc }
+
+        OpVar ScanTable ->
+            executeScanTable instr ops m
+
+        OpVar NotV5 ->
+            storeResult instr (Bitwise.and (Bitwise.complement arg0) 0xFFFF) m
+
+        OpVar CallVn ->
+            executeCall instr arg0 (List.drop 1 ops) m
+
+        OpVar CallVn2 ->
+            executeCall instr arg0 (List.drop 1 ops) m
+
+        OpVar Tokenise ->
+            executeTokenise ops m
+
+        OpVar EncodeText ->
+            -- Rarely used; store zeros as a safe no-op
+            Continue m
+
+        OpVar CopyTable ->
+            executeCopyTable ops m
+
+        OpVar PrintTable ->
+            -- Minimal implementation: print as single-column text
+            executePrintTable ops m
+
+        OpVar CheckArgCount ->
+            executeCheckArgCount instr ops m
+
         OpVar (Opcode.UnknownVar n) ->
+            Error (InvalidOpcode n) m
+
+        -- EXT
+        OpExt ExtSave ->
+            executeSave instr { m | pc = machine.pc }
+
+        OpExt ExtRestore ->
+            executeRestore instr { m | pc = machine.pc }
+
+        OpExt LogShift ->
+            executeLogShift instr ops m
+
+        OpExt ArtShift ->
+            executeArtShift instr ops m
+
+        OpExt SetFont ->
+            -- Font 1 (normal) always available; return previous font (1)
+            storeResult instr 1 m
+
+        OpExt SaveUndo ->
+            -- No undo support: store -1 (failure)
+            storeResult instr 0xFFFF m
+
+        OpExt RestoreUndo ->
+            -- No undo support: store 0 (failure)
+            storeResult instr 0 m
+
+        OpExt (Opcode.UnknownExt n) ->
             Error (InvalidOpcode n) m
 
 
@@ -575,6 +712,7 @@ executeCall instr packedAddr args machine =
                 , returnStore = instr.store
                 , locals = Array.fromList localsWithArgs
                 , evalStack = machine.stack
+                , argCount = List.length args
                 }
         in
         Continue
@@ -1005,3 +1143,341 @@ writeIndirect varNum value machine =
 
     else
         State.writeVariable (variableRefFromByte varNum) value machine
+
+
+
+-- SAVE / RESTORE (V5 ext versions reuse NeedSave/NeedRestore)
+
+
+executeSave : Instruction -> ZMachine -> Outcome
+executeSave _ machine =
+    let
+        snap =
+            Snapshot.capture
+                { memory = machine.memory
+                , pc = machine.pc
+                , stack = machine.stack
+                , callStack = machine.callStack
+                , resumeKind = Snapshot.ResumeByStoreResult
+                }
+    in
+    NeedSave snap machine
+
+
+executeRestore : Instruction -> ZMachine -> Outcome
+executeRestore _ machine =
+    NeedRestore machine
+
+
+
+-- SCAN TABLE
+
+
+executeScanTable : Instruction -> List Int -> ZMachine -> Outcome
+executeScanTable instr ops machine =
+    let
+        x =
+            operandAt 0 ops
+
+        table =
+            operandAt 1 ops
+
+        len =
+            operandAt 2 ops
+
+        form =
+            if List.length ops > 3 then
+                operandAt 3 ops
+
+            else
+                0x82
+
+        fieldLen =
+            Bitwise.and form 0x7F
+
+        isWord =
+            Bitwise.and form 0x80 /= 0
+    in
+    scanTableLoop x table len fieldLen isWord 0 instr machine
+
+
+scanTableLoop : Int -> Int -> Int -> Int -> Bool -> Int -> Instruction -> ZMachine -> Outcome
+scanTableLoop x table len fieldLen isWord i instr machine =
+    if i >= len then
+        let
+            m1 =
+                storeResultRaw instr 0 machine
+        in
+        executeBranch instr False m1
+
+    else
+        let
+            addr =
+                table + i * fieldLen
+
+            val =
+                if isWord then
+                    Memory.readWord addr machine.memory
+
+                else
+                    Memory.readByte addr machine.memory
+        in
+        if val == x then
+            let
+                m1 =
+                    storeResultRaw instr addr machine
+            in
+            executeBranch instr True m1
+
+        else
+            scanTableLoop x table len fieldLen isWord (i + 1) instr machine
+
+
+storeResultRaw : Instruction -> Int -> ZMachine -> ZMachine
+storeResultRaw instr value machine =
+    case instr.store of
+        Just varRef ->
+            State.writeVariable varRef value machine
+
+        Nothing ->
+            machine
+
+
+
+-- TOKENISE (VAR opcode)
+
+
+executeTokenise : List Int -> ZMachine -> Outcome
+executeTokenise ops machine =
+    let
+        textBufAddr =
+            operandAt 0 ops
+
+        parseBufAddr =
+            operandAt 1 ops
+
+        p =
+            Memory.profile machine.memory
+
+        -- Read the text from the text buffer
+        textStart =
+            textBufAddr + p.textBufferOffset
+
+        input =
+            readZsciiString textStart machine.memory
+    in
+    Continue { machine | memory = Dictionary.tokenize input textBufAddr parseBufAddr machine.memory }
+
+
+readZsciiString : Int -> Memory.Memory -> String
+readZsciiString addr mem =
+    readZsciiStringHelp addr mem []
+
+
+readZsciiStringHelp : Int -> Memory.Memory -> List Char -> String
+readZsciiStringHelp addr mem acc =
+    let
+        byte =
+            Memory.readByte addr mem
+    in
+    if byte == 0 then
+        String.fromList (List.reverse acc)
+
+    else
+        readZsciiStringHelp (addr + 1) mem (Char.fromCode byte :: acc)
+
+
+
+-- COPY TABLE
+
+
+executeCopyTable : List Int -> ZMachine -> Outcome
+executeCopyTable ops machine =
+    let
+        first =
+            operandAt 0 ops
+
+        second =
+            operandAt 1 ops
+
+        size =
+            toSignedInt16 (operandAt 2 ops)
+    in
+    if second == 0 then
+        -- Zero out first table
+        Continue { machine | memory = zeroMemory first (abs size) machine.memory }
+
+    else if size >= 0 then
+        -- Copy forward (safe when src > dest)
+        Continue { machine | memory = copyMemForward first second size machine.memory }
+
+    else
+        -- Copy backward (safe when dest > src, size is negative = abs)
+        Continue { machine | memory = copyMemBackward first second (abs size) machine.memory }
+
+
+zeroMemory : Int -> Int -> Memory.Memory -> Memory.Memory
+zeroMemory addr len mem =
+    if len <= 0 then
+        mem
+
+    else
+        zeroMemory (addr + 1) (len - 1) (Memory.writeByte addr 0 mem)
+
+
+copyMemForward : Int -> Int -> Int -> Memory.Memory -> Memory.Memory
+copyMemForward src dest len mem =
+    copyMemForwardHelp src dest 0 len mem
+
+
+copyMemForwardHelp : Int -> Int -> Int -> Int -> Memory.Memory -> Memory.Memory
+copyMemForwardHelp src dest i len mem =
+    if i >= len then
+        mem
+
+    else
+        let
+            byte =
+                Memory.readByte (src + i) mem
+        in
+        copyMemForwardHelp src dest (i + 1) len (Memory.writeByte (dest + i) byte mem)
+
+
+copyMemBackward : Int -> Int -> Int -> Memory.Memory -> Memory.Memory
+copyMemBackward src dest len mem =
+    copyMemBackwardHelp src dest (len - 1) mem
+
+
+copyMemBackwardHelp : Int -> Int -> Int -> Memory.Memory -> Memory.Memory
+copyMemBackwardHelp src dest i mem =
+    if i < 0 then
+        mem
+
+    else
+        let
+            byte =
+                Memory.readByte (src + i) mem
+        in
+        copyMemBackwardHelp src dest (i - 1) (Memory.writeByte (dest + i) byte mem)
+
+
+
+-- PRINT TABLE
+
+
+executePrintTable : List Int -> ZMachine -> Outcome
+executePrintTable ops machine =
+    let
+        addr =
+            operandAt 0 ops
+
+        width =
+            operandAt 1 ops
+
+        height =
+            if List.length ops > 2 then
+                operandAt 2 ops
+
+            else
+                1
+
+        skip =
+            if List.length ops > 3 then
+                operandAt 3 ops
+
+            else
+                0
+    in
+    printTableRows addr width height skip 0 machine
+
+
+printTableRows : Int -> Int -> Int -> Int -> Int -> ZMachine -> Outcome
+printTableRows addr width height skip row machine =
+    if row >= height then
+        Continue machine
+
+    else
+        let
+            rowAddr =
+                addr + row * (width + skip)
+
+            text =
+                List.range 0 (width - 1)
+                    |> List.map (\col -> Char.fromCode (Memory.readByte (rowAddr + col) machine.memory))
+                    |> String.fromList
+
+            m1 =
+                State.appendOutput (Types.PrintText text) machine
+
+            m2 =
+                if row < height - 1 then
+                    State.appendOutput Types.NewLine m1
+
+                else
+                    m1
+        in
+        printTableRows addr width height skip (row + 1) m2
+
+
+
+-- CHECK ARG COUNT
+
+
+executeCheckArgCount : Instruction -> List Int -> ZMachine -> Outcome
+executeCheckArgCount instr ops machine =
+    let
+        argNum =
+            operandAt 0 ops
+
+        currentArgCount =
+            case machine.callStack of
+                frame :: _ ->
+                    frame.argCount
+
+                [] ->
+                    0
+    in
+    executeBranch instr (argNum <= currentArgCount) machine
+
+
+
+-- LOG SHIFT / ART SHIFT
+
+
+executeLogShift : Instruction -> List Int -> ZMachine -> Outcome
+executeLogShift instr ops machine =
+    let
+        number =
+            operandAt 0 ops
+
+        places =
+            toSignedInt16 (operandAt 1 ops)
+
+        result =
+            if places >= 0 then
+                Bitwise.and (Bitwise.shiftLeftBy places number) 0xFFFF
+
+            else
+                Bitwise.shiftRightZfBy (abs places) number
+    in
+    storeResult instr result machine
+
+
+executeArtShift : Instruction -> List Int -> ZMachine -> Outcome
+executeArtShift instr ops machine =
+    let
+        number =
+            toSignedInt16 (operandAt 0 ops)
+
+        places =
+            toSignedInt16 (operandAt 1 ops)
+
+        result =
+            if places >= 0 then
+                Bitwise.and (Bitwise.shiftLeftBy places number) 0xFFFF
+
+            else
+                -- Arithmetic right shift preserves sign
+                Bitwise.and (Bitwise.shiftRightBy (abs places) number) 0xFFFF
+    in
+    storeResult instr result machine

@@ -985,6 +985,7 @@ pushFrame zm =
             , returnStore = Just Stack
             , locals = Array.empty
             , evalStack = []
+            , argCount = 0
             }
     in
     { zm | callStack = frame :: zm.callStack }

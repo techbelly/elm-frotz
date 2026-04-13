@@ -15,6 +15,7 @@ module ZMachine.Run exposing
 import ZMachine.Decode as Decode
 import ZMachine.Dictionary as Dictionary
 import ZMachine.Execute as Execute
+import ZMachine.Memory as Memory
 import ZMachine.Snapshot as Snapshot exposing (Snapshot)
 import ZMachine.Types
     exposing
@@ -68,14 +69,41 @@ provideInput input request machine =
                 mem =
                     Dictionary.tokenize truncated info.textBufferAddr info.parseBufferAddr machine.memory
 
-                -- Advance PC past the sread instruction (PC still points at it)
+                -- Advance PC past the sread/aread instruction (PC still points at it)
+                instr =
+                    Decode.decode machine.pc machine.memory
+
+                nextPC =
+                    machine.pc + instr.length
+
+                version =
+                    (Memory.profile machine.memory).version
+
+                advanced =
+                    { machine | memory = mem, pc = nextPC }
+            in
+            case version of
+                Memory.V5 ->
+                    -- V5 aread stores the terminating character (13 = newline)
+                    drain (Execute.storeInstr instr 13 advanced)
+
+                Memory.V3 ->
+                    Continue [] advanced
+
+        CharInput ->
+            let
+                charCode =
+                    String.uncons input
+                        |> Maybe.map (Tuple.first >> Char.toCode)
+                        |> Maybe.withDefault 13
+
                 instr =
                     Decode.decode machine.pc machine.memory
 
                 nextPC =
                     machine.pc + instr.length
             in
-            Continue [] { machine | memory = mem, pc = nextPC }
+            drain (Execute.storeInstr instr charCode { machine | pc = nextPC })
 
 
 {-| Resume a machine that returned `NeedSave`. Pass `True` if the host
@@ -91,7 +119,16 @@ the Z-Machine v3 convention that `save` branches on success.
 -}
 provideSaveResult : Bool -> ZMachine -> StepResult
 provideSaveResult success machine =
-    drain (Execute.resumeWithBranch success machine)
+    let
+        version =
+            (Memory.profile machine.memory).version
+    in
+    case version of
+        Memory.V5 ->
+            drain (Execute.resumeWithStore (if success then 1 else 0) machine)
+
+        Memory.V3 ->
+            drain (Execute.resumeWithBranch success machine)
 
 
 {-| Resume a machine that returned `NeedRestore`. Pass `Just snapshot`
@@ -133,6 +170,9 @@ provideRestoreResult maybeSnap machine =
 
                         Snapshot.ResumeByBranchTrue ->
                             drain (Execute.resumeWithBranch True restored)
+
+                        Snapshot.ResumeByStoreResult ->
+                            drain (Execute.resumeWithStore 2 restored)
 
 
 

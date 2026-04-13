@@ -602,31 +602,31 @@ opcodeClassificationTests =
     describe "opcode classification"
         [ test "add stores result" <|
             \_ ->
-                Opcode.storesResult (Op2 Add)
+                Opcode.storesResult Memory.V3 (Op2 Add)
                     |> Expect.equal True
         , test "je does not store" <|
             \_ ->
-                Opcode.storesResult (Op2 Je)
+                Opcode.storesResult Memory.V3 (Op2 Je)
                     |> Expect.equal False
         , test "je branches" <|
             \_ ->
-                Opcode.branches (Op2 Je)
+                Opcode.branches Memory.V3 (Op2 Je)
                     |> Expect.equal True
         , test "add does not branch" <|
             \_ ->
-                Opcode.branches (Op2 Add)
+                Opcode.branches Memory.V3 (Op2 Add)
                     |> Expect.equal False
         , test "get_child both stores and branches" <|
             \_ ->
-                ( Opcode.storesResult (Op1 GetChild), Opcode.branches (Op1 GetChild) )
+                ( Opcode.storesResult Memory.V3 (Op1 GetChild), Opcode.branches Memory.V3 (Op1 GetChild) )
                     |> Expect.equal ( True, True )
         , test "get_sibling both stores and branches" <|
             \_ ->
-                ( Opcode.storesResult (Op1 GetSibling), Opcode.branches (Op1 GetSibling) )
+                ( Opcode.storesResult Memory.V3 (Op1 GetSibling), Opcode.branches Memory.V3 (Op1 GetSibling) )
                     |> Expect.equal ( True, True )
         , test "save branches" <|
             \_ ->
-                Opcode.branches (Op0 Save)
+                Opcode.branches Memory.V3 (Op0 Save)
                     |> Expect.equal True
         , test "print has text" <|
             \_ ->
@@ -642,14 +642,14 @@ opcodeClassificationTests =
                     |> Expect.equal False
         , test "call stores" <|
             \_ ->
-                Opcode.storesResult (OpVar Call)
+                Opcode.storesResult Memory.V3 (OpVar Call)
                     |> Expect.equal True
         , test "random stores" <|
             \_ ->
-                Opcode.storesResult (OpVar Random)
+                Opcode.storesResult Memory.V3 (OpVar Random)
                     |> Expect.equal True
         , test "storew does not store" <|
             \_ ->
-                Opcode.storesResult (OpVar Storew)
+                Opcode.storesResult Memory.V3 (OpVar Storew)
                     |> Expect.equal False
         ]

@@ -171,12 +171,17 @@ runSteps =
     Run.runSteps
 
 
-{-| Provide a line of input to a machine that returned `NeedInput`.
-Writes the text into the story's text buffer, tokenizes it, and
-resumes execution.
+{-| Provide input to a machine that returned `NeedInput`.
+
+For `LineInput` (sread/aread): writes the text into the story's text
+buffer, tokenizes it, and resumes execution. In V5, also stores the
+terminating character (13 for newline).
+
+For `CharInput` (read\_char): pass a single-character string. The
+ZSCII code of the first character is stored as the result.
 
     case ZMachine.runSteps 10000 machine of
-        NeedInput request machineWithOutput ->
+        NeedInput request _ machineWithOutput ->
             ZMachine.provideInput "open mailbox" request machineWithOutput
 
         _ ->

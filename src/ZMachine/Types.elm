@@ -123,12 +123,20 @@ type ZMachineError
     | InvalidVariable Int
 
 
-{-| What kind of input the machine needs. Currently only line input is
-supported (the `sread` opcode in Z-Machine v3).
+{-| What kind of input the machine needs.
+
+  - `LineInput` — the `sread`/`aread` opcode wants a line of text.
+  - `CharInput` — the `read_char` opcode wants a single keypress.
+
+<!-- -->
 
     case result of
-        NeedInput (LineInput info) machine ->
+        NeedInput (LineInput info) _ _ ->
             -- prompt the player, then call ZMachine.provideInput
+            ...
+
+        NeedInput (CharInput info) _ _ ->
+            -- read a single character, then call ZMachine.provideCharInput
             ...
 
 -}
@@ -138,6 +146,7 @@ type InputRequest
         , textBufferAddr : Int
         , parseBufferAddr : Int
         }
+    | CharInput
 
 
 {-| Structured output events for the host to render.
@@ -162,6 +171,8 @@ type OutputEvent
     | EraseWindow Int
     | SetCursor Int Int
     | SetBufferMode Bool
+    | SetTextStyle Int
+    | SetColour Int Int
     | PlaySound Int
 
 

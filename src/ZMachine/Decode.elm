@@ -19,6 +19,7 @@ import ZMachine.Opcode as Opcode
         ( BranchInfo
         , BranchTarget(..)
         , Instruction
+        , OpExt(..)
         , Opcode(..)
         , Operand(..)
         )
@@ -63,7 +64,11 @@ decodeShort pc opcodeByte mem =
         pos =
             pc + 1
     in
-    if opType == 3 then
+    if opType == 3 && opcodeNum == 14 && (Memory.profile mem).version == Memory.V5 then
+        -- Extended form (0xBE): V5+ only
+        decodeExtended pc mem
+
+    else if opType == 3 then
         -- 0OP
         let
             opcode =
@@ -81,6 +86,28 @@ decodeShort pc opcodeByte mem =
                 readOperandByType opType pos mem
         in
         decodePostOperands pc nextPos opcode [ operand ] mem
+
+
+
+-- EXTENDED FORM: 0xBE prefix (V5+)
+
+
+decodeExtended : Int -> Memory -> Instruction
+decodeExtended pc mem =
+    let
+        extOpcodeNum =
+            Memory.readByte (pc + 1) mem
+
+        opcode =
+            OpExt (Opcode.opExtFromNumber extOpcodeNum)
+
+        typesByte =
+            Memory.readByte (pc + 2) mem
+
+        ( operands, nextPos ) =
+            readOperandsFromTypes typesByte (pc + 3) mem
+    in
+    decodePostOperands pc nextPos opcode operands mem
 
 
 
@@ -142,11 +169,29 @@ decodeVariable pc opcodeByte mem =
             else
                 OpVar (Opcode.opVarFromNumber opcodeNum)
 
-        typesByte =
+        -- call_vs2 (VAR:12) and call_vn2 (VAR:26) use two types bytes
+        hasDoubleTypes =
+            Bitwise.and opcodeByte 0x20 /= 0 && (opcodeNum == 12 || opcodeNum == 26)
+
+        typesByte1 =
             Memory.readByte (pc + 1) mem
 
         ( operands, nextPos ) =
-            readOperandsFromTypes typesByte (pc + 2) mem
+            if hasDoubleTypes then
+                let
+                    typesByte2 =
+                        Memory.readByte (pc + 2) mem
+
+                    ( ops1, pos1 ) =
+                        readOperandsFromTypes typesByte1 (pc + 3) mem
+
+                    ( ops2, pos2 ) =
+                        readOperandsFromTypes typesByte2 pos1 mem
+                in
+                ( ops1 ++ ops2, pos2 )
+
+            else
+                readOperandsFromTypes typesByte1 (pc + 2) mem
     in
     decodePostOperands pc nextPos opcode operands mem
 
@@ -221,15 +266,18 @@ readOperandsList types pos mem acc =
 decodePostOperands : Int -> Int -> Opcode -> List Operand -> Memory -> Instruction
 decodePostOperands pc pos opcode operands mem =
     let
+        version =
+            (Memory.profile mem).version
+
         ( store, posAfterStore ) =
-            if Opcode.storesResult opcode then
+            if Opcode.storesResult version opcode then
                 ( Just (Opcode.variableRefFromByte (Memory.readByte pos mem)), pos + 1 )
 
             else
                 ( Nothing, pos )
 
         ( branch, posAfterBranch ) =
-            if Opcode.branches opcode then
+            if Opcode.branches version opcode then
                 decodeBranch posAfterStore mem
 
             else

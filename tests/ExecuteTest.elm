@@ -25,6 +25,7 @@ suite =
         , branchTests
         , variableTests
         , controlFlowTests
+        , callTests
         , memoryAccessTests
         , ioTests
         , stackTests
@@ -52,6 +53,16 @@ makeZM instrBytes =
 
 makeZMAt : Int -> List Int -> ZMachine
 makeZMAt pc instrBytes =
+    makeZMVersionAt 3 pc instrBytes
+
+
+makeZMv5At : Int -> List Int -> ZMachine
+makeZMv5At pc instrBytes =
+    makeZMVersionAt 5 pc instrBytes
+
+
+makeZMVersionAt : Int -> Int -> List Int -> ZMachine
+makeZMVersionAt version pc instrBytes =
     let
         totalSize =
             512
@@ -64,7 +75,7 @@ makeZMAt pc instrBytes =
 
         base =
             List.repeat totalSize 0
-                |> setAt 0 3
+                |> setAt 0 version
                 -- version
                 |> setAt 0x04 0x01
                 |> setAt 0x05 0x00
@@ -875,6 +886,95 @@ stackTests =
 
 
 -- HELPER: Push a call frame so returns work
+
+
+callTests : Test
+callTests =
+    describe "call convention"
+        [ test "V3 call reads initial local values from routine header" <|
+            \_ ->
+                let
+                    -- Routine at packed address 0x60 -> byte address 0xC0
+                    -- Routine header: 2 locals, initial values 0x000A, 0x0014
+                    -- Then rtrue (0xB0)
+                    -- call_vs 0x60 -> store to stack
+                    -- VAR call: 0xE0 0x00 (opcode + 1-arg types), 0x00 0x60 (packed addr), 0x00 (store to stack)
+                    zm =
+                        makeZMAt 0x40
+                            ([ 0xE0, 0x3F, 0x00, 0x60, 0x00 ]
+                                -- padding to fill up to 0xC0
+                                ++ List.repeat (0xC0 - 0x40 - 5) 0
+                                -- routine at 0xC0: 2 locals, values 10 and 20, then ret_popped
+                                ++ [ 0x02, 0x00, 0x0A, 0x00, 0x14, 0xB8 ]
+                            )
+                            |> pushFrame
+
+                    result =
+                        Execute.step zm
+                in
+                case result of
+                    Continue m ->
+                        -- PC should be at the rtrue (0xC0 + 1 + 2*2 = 0xC5)
+                        m.pc |> Expect.equal 0xC5
+
+                    _ ->
+                        Expect.fail "Expected Continue"
+        , test "V5 call zeros locals and skips only count byte" <|
+            \_ ->
+                let
+                    -- Routine at packed address 0x30 -> byte address 0xC0 (V5: 0x30 * 4)
+                    -- Routine header: 2 locals (no initial values)
+                    -- Then rtrue (0xB0)
+                    zm =
+                        makeZMv5At 0x40
+                            ([ 0xE0, 0x3F, 0x00, 0x30, 0x00 ]
+                                ++ List.repeat (0xC0 - 0x40 - 5) 0
+                                -- routine at 0xC0: 2 locals, then ret_popped
+                                ++ [ 0x02, 0xB8 ]
+                            )
+                            |> pushFrame
+
+                    result =
+                        Execute.step zm
+                in
+                case result of
+                    Continue m ->
+                        -- PC should be at ret_popped (0xC0 + 1 = 0xC1)
+                        m.pc |> Expect.equal 0xC1
+
+                    _ ->
+                        Expect.fail "Expected Continue"
+        , test "V5 call locals are zero-initialised" <|
+            \_ ->
+                let
+                    -- Routine at packed address 0x30 -> byte address 0xC0
+                    zm =
+                        makeZMv5At 0x40
+                            ([ 0xE0, 0x3F, 0x00, 0x30, 0x00 ]
+                                ++ List.repeat (0xC0 - 0x40 - 5) 0
+                                -- routine at 0xC0: 2 locals, then ret_popped
+                                ++ [ 0x02, 0xB8 ]
+                            )
+                            |> pushFrame
+
+                    result =
+                        Execute.step zm
+                in
+                case result of
+                    Continue m ->
+                        -- Check that the new frame's locals are both 0
+                        case m.callStack of
+                            frame :: _ ->
+                                frame.locals
+                                    |> Array.toList
+                                    |> Expect.equal [ 0, 0 ]
+
+                            [] ->
+                                Expect.fail "Expected call frame on stack"
+
+                    _ ->
+                        Expect.fail "Expected Continue"
+        ]
 
 
 pushFrame : ZMachine -> ZMachine

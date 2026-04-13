@@ -289,7 +289,7 @@ processZChar abbrTableAddr mem isAbbreviation zchar state =
                                 abbrTableAddr + abbrIndex * Memory.wordLength
 
                             abbrStringAddr =
-                                Memory.unpackAddress (Memory.readWord abbrWordAddr mem)
+                                Memory.unpackAddress (Memory.readWord abbrWordAddr mem) mem
 
                             ( abbrWords, _ ) =
                                 readZWords abbrStringAddr mem []

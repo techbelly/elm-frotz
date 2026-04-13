@@ -288,7 +288,7 @@ execute instr nextPC ops machine =
         Op1 PrintPaddr ->
             let
                 ( str, _ ) =
-                    Text.decodeZString (Memory.unpackAddress arg0) m.memory
+                    Text.decodeZString (Memory.unpackAddress arg0 m.memory) m.memory
             in
             Continue (State.appendOutput (Types.PrintText str) m)
 
@@ -537,26 +537,38 @@ executeCall instr packedAddr args machine =
 
     else
         let
+            p =
+                Memory.profile machine.memory
+
             routineAddr =
-                Memory.unpackAddress packedAddr
+                Memory.unpackAddress packedAddr machine.memory
 
             numLocals =
                 Memory.readByte routineAddr machine.memory
 
-            -- V3: initial local values follow the count byte
             initialValues =
-                List.range 1 numLocals
-                    |> List.map
-                        (\i ->
-                            Memory.readWord (routineAddr + 1 + (i - 1) * Memory.wordLength) machine.memory
-                        )
+                if p.routineHasInitialValues then
+                    -- V3: initial local values follow the count byte
+                    List.range 1 numLocals
+                        |> List.map
+                            (\i ->
+                                Memory.readWord (routineAddr + 1 + (i - 1) * Memory.wordLength) machine.memory
+                            )
+
+                else
+                    -- V5+: locals are zero-initialised
+                    List.repeat numLocals 0
 
             -- Override leading defaults with provided arguments
             localsWithArgs =
                 mergeArgsWithDefaults args initialValues
 
             firstInstrAddr =
-                routineAddr + 1 + numLocals * Memory.wordLength
+                if p.routineHasInitialValues then
+                    routineAddr + 1 + numLocals * Memory.wordLength
+
+                else
+                    routineAddr + 1
 
             frame =
                 { returnPC = machine.pc

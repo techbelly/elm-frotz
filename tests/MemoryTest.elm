@@ -5,13 +5,14 @@ import Bytes exposing (Bytes)
 import Bytes.Encode as Encode
 import Expect
 import Test exposing (Test, describe, test)
-import ZMachine.Memory as Memory exposing (Memory)
+import ZMachine.Memory as Memory exposing (Memory, Version(..))
 
 
 suite : Test
 suite =
     describe "ZMachine.Memory"
         [ fromBytesTests
+        , versionProfileTests
         , readByteTests
         , readWordTests
         , readSignedWordTests
@@ -126,38 +127,88 @@ fromBytesTests =
                 in
                 Memory.fromBytes tiny
                     |> Expect.err
-        , test "rejects non-V3 files" <|
+        , test "rejects unsupported versions" <|
             \_ ->
                 let
-                    v5 =
-                        makeStoryFileWithVersion 5 256 128
+                    v4 =
+                        makeStoryFileWithVersion 4 256 128
                 in
-                Memory.fromBytes v5
+                Memory.fromBytes v4
+                    |> Expect.err
+        , test "rejects version 6" <|
+            \_ ->
+                Memory.fromBytes (makeStoryFileWithVersion 6 256 128)
                     |> Expect.err
         , test "accepts valid V3 file" <|
             \_ ->
-                let
-                    valid =
-                        makeStoryFile 256 128
-                in
-                Memory.fromBytes valid
+                Memory.fromBytes (makeStoryFile 256 128)
+                    |> Expect.ok
+        , test "accepts valid V5 file" <|
+            \_ ->
+                Memory.fromBytes (makeStoryFileWithVersion 5 256 128)
                     |> Expect.ok
         , test "rejects static base below 64" <|
             \_ ->
-                let
-                    bad =
-                        makeStoryFile 256 32
-                in
-                Memory.fromBytes bad
+                Memory.fromBytes (makeStoryFile 256 32)
                     |> Expect.err
         , test "rejects static base beyond file length" <|
             \_ ->
-                let
-                    bad =
-                        makeStoryFile 128 256
-                in
-                Memory.fromBytes bad
+                Memory.fromBytes (makeStoryFile 128 256)
                     |> Expect.err
+        ]
+
+
+versionProfileTests : Test
+versionProfileTests =
+    describe "profile"
+        [ test "V3 profile has correct version" <|
+            \_ ->
+                let
+                    mem =
+                        loadOrFail (makeStoryFile 256 128)
+                in
+                (Memory.profile mem).version
+                    |> Expect.equal V3
+        , test "V5 profile has correct version" <|
+            \_ ->
+                let
+                    mem =
+                        loadOrFail (makeStoryFileWithVersion 5 256 128)
+                in
+                (Memory.profile mem).version
+                    |> Expect.equal V5
+        , test "V3 packing shift is 1" <|
+            \_ ->
+                let
+                    mem =
+                        loadOrFail (makeStoryFile 256 128)
+                in
+                (Memory.profile mem).packingShift
+                    |> Expect.equal 1
+        , test "V5 packing shift is 2" <|
+            \_ ->
+                let
+                    mem =
+                        loadOrFail (makeStoryFileWithVersion 5 256 128)
+                in
+                (Memory.profile mem).packingShift
+                    |> Expect.equal 2
+        , test "V3 object entry size is 9" <|
+            \_ ->
+                (Memory.profile (loadOrFail (makeStoryFile 256 128))).objectEntrySize
+                    |> Expect.equal 9
+        , test "V5 object entry size is 14" <|
+            \_ ->
+                (Memory.profile (loadOrFail (makeStoryFileWithVersion 5 256 128))).objectEntrySize
+                    |> Expect.equal 14
+        , test "V3 has status line" <|
+            \_ ->
+                (Memory.profile (loadOrFail (makeStoryFile 256 128))).hasStatusLine
+                    |> Expect.equal True
+        , test "V5 has no status line" <|
+            \_ ->
+                (Memory.profile (loadOrFail (makeStoryFileWithVersion 5 256 128))).hasStatusLine
+                    |> Expect.equal False
         ]
 
 
@@ -425,11 +476,27 @@ unpackAddressTests =
     describe "unpackAddress"
         [ test "V3 packed address is multiplied by 2" <|
             \_ ->
-                Memory.unpackAddress 0x1000
+                let
+                    mem =
+                        loadOrFail (makeStoryFile 256 128)
+                in
+                Memory.unpackAddress 0x1000 mem
                     |> Expect.equal 0x2000
+        , test "V5 packed address is multiplied by 4" <|
+            \_ ->
+                let
+                    mem =
+                        loadOrFail (makeStoryFileWithVersion 5 256 128)
+                in
+                Memory.unpackAddress 0x1000 mem
+                    |> Expect.equal 0x4000
         , test "zero stays zero" <|
             \_ ->
-                Memory.unpackAddress 0
+                let
+                    mem =
+                        loadOrFail (makeStoryFile 256 128)
+                in
+                Memory.unpackAddress 0 mem
                     |> Expect.equal 0
         ]
 

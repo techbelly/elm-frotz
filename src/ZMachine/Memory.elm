@@ -1,6 +1,9 @@
 module ZMachine.Memory exposing
     ( Memory
+    , Version(..)
+    , VersionProfile
     , fromBytes
+    , profile
     , readByte
     , readWord
     , readSignedWord
@@ -22,7 +25,7 @@ random access reads. Writes are guarded so only dynamic memory (below
 `staticBase`) is mutable; writes to static/high memory are silently
 ignored, matching the spec requirement that they're illegal.
 
-@docs Memory, fromBytes
+@docs Memory, Version, VersionProfile, fromBytes, profile
 @docs readByte, readWord, readSignedWord
 @docs writeByte, writeWord
 @docs readSlice, size, dynamicSize, unpackAddress, wordLength
@@ -38,6 +41,39 @@ import Library.ArrayExtra as ArrayExtra
 import Library.BytesExtra as BytesExtra
 
 
+{-| Z-Machine version.
+-}
+type Version
+    = V3
+    | V5
+
+
+{-| Version-dependent constants, computed once at load time.
+
+Every numeric difference between Z-Machine versions lives here so the
+rest of the codebase can read fields instead of switching on `Version`.
+-}
+type alias VersionProfile =
+    { version : Version
+    , packingShift : Int
+    , numPropertyDefaults : Int
+    , objectEntrySize : Int
+    , numAttributeBytes : Int
+    , propertyNumberMask : Int
+    , objectPointerSize : Int
+    , parentOffset : Int
+    , siblingOffset : Int
+    , childOffset : Int
+    , propPtrOffset : Int
+    , dictWordZChars : Int
+    , dictWordWords : Int
+    , fileLengthMultiplier : Int
+    , routineHasInitialValues : Bool
+    , textBufferOffset : Int
+    , hasStatusLine : Bool
+    }
+
+
 {-| The Z-Machine memory image. Opaque type — use the read/write functions.
 -}
 type Memory
@@ -45,6 +81,7 @@ type Memory
         { bytes : Array Int
         , staticBase : Int
         , fileLength : Int
+        , versionProfile : VersionProfile
         }
 
 
@@ -71,24 +108,27 @@ fromBytes raw =
             Nothing ->
                 Err "Failed to decode story file header"
 
-            Just ( version, staticBase ) ->
-                if version /= 3 then
-                    Err ("Unsupported Z-Machine version: " ++ String.fromInt version ++ " (only version 3 is supported)")
+            Just ( versionByte, staticBase ) ->
+                case versionFromInt versionByte of
+                    Nothing ->
+                        Err ("Unsupported Z-Machine version: " ++ String.fromInt versionByte ++ " (only versions 3 and 5 are supported)")
 
-                else if staticBase < 64 then
-                    Err ("Invalid static memory base: " ++ String.fromInt staticBase ++ " (must be >= 64)")
+                    Just ver ->
+                        if staticBase < 64 then
+                            Err ("Invalid static memory base: " ++ String.fromInt staticBase ++ " (must be >= 64)")
 
-                else if staticBase > len then
-                    Err ("Static memory base " ++ String.fromInt staticBase ++ " exceeds file length " ++ String.fromInt len)
+                        else if staticBase > len then
+                            Err ("Static memory base " ++ String.fromInt staticBase ++ " exceeds file length " ++ String.fromInt len)
 
-                else
-                    Ok
-                        (Memory
-                            { bytes = BytesExtra.toIntArray raw
-                            , staticBase = staticBase
-                            , fileLength = len
-                            }
-                        )
+                        else
+                            Ok
+                                (Memory
+                                    { bytes = BytesExtra.toIntArray raw
+                                    , staticBase = staticBase
+                                    , fileLength = len
+                                    , versionProfile = makeProfile ver
+                                    }
+                                )
 
 
 {-| Read a single byte (0-255) from the given address.
@@ -194,11 +234,19 @@ wordLength =
     2
 
 
-{-| Convert a packed address to a byte address (V3: multiply by word length).
+{-| The version profile for this memory image.
 -}
-unpackAddress : Int -> Int
-unpackAddress packed =
-    packed * wordLength
+profile : Memory -> VersionProfile
+profile (Memory mem) =
+    mem.versionProfile
+
+
+{-| Convert a packed address to a byte address.
+V3 shifts left by 1 (×2), V5 shifts left by 2 (×4).
+-}
+unpackAddress : Int -> Memory -> Int
+unpackAddress packed (Memory mem) =
+    Bitwise.shiftLeftBy mem.versionProfile.packingShift packed
 
 
 {-| Extract a snapshot of the dynamic memory region as an `Array Int`.
@@ -238,6 +286,63 @@ replaceDynamic newDynamic (Memory mem) =
 
 
 -- INTERNAL HELPERS
+
+
+versionFromInt : Int -> Maybe Version
+versionFromInt n =
+    case n of
+        3 ->
+            Just V3
+
+        5 ->
+            Just V5
+
+        _ ->
+            Nothing
+
+
+makeProfile : Version -> VersionProfile
+makeProfile ver =
+    case ver of
+        V3 ->
+            { version = V3
+            , packingShift = 1
+            , numPropertyDefaults = 31
+            , objectEntrySize = 9
+            , numAttributeBytes = 4
+            , propertyNumberMask = 0x1F
+            , objectPointerSize = 1
+            , parentOffset = 4
+            , siblingOffset = 5
+            , childOffset = 6
+            , propPtrOffset = 7
+            , dictWordZChars = 6
+            , dictWordWords = 2
+            , fileLengthMultiplier = 2
+            , routineHasInitialValues = True
+            , textBufferOffset = 1
+            , hasStatusLine = True
+            }
+
+        V5 ->
+            { version = V5
+            , packingShift = 2
+            , numPropertyDefaults = 63
+            , objectEntrySize = 14
+            , numAttributeBytes = 6
+            , propertyNumberMask = 0x3F
+            , objectPointerSize = 2
+            , parentOffset = 6
+            , siblingOffset = 8
+            , childOffset = 10
+            , propPtrOffset = 12
+            , dictWordZChars = 9
+            , dictWordWords = 3
+            , fileLengthMultiplier = 4
+            , routineHasInitialValues = False
+            , textBufferOffset = 2
+            , hasStatusLine = False
+            }
 
 
 {-| Decode version byte and static memory base from the header.

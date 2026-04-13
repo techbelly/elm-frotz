@@ -146,12 +146,13 @@ serialNumber mem =
         |> String.fromList
 
 
-{-| File length (word at 0x1A). In V3, multiply by 2 to get actual byte count.
-Returns 0 for early V3 files that don't include this field.
+{-| File length (word at 0x1A). Multiply by the version-dependent factor
+(V3: ×2, V5: ×4) to get the actual byte count.
+Returns 0 for early files that don't include this field.
 -}
 fileLength : Memory -> Int
 fileLength mem =
-    Memory.readWord 0x1A mem * 2
+    Memory.readWord 0x1A mem * (Memory.profile mem).fileLengthMultiplier
 
 
 {-| File checksum (word at 0x1C). Sum of all bytes from 0x40 onward, mod 65536.

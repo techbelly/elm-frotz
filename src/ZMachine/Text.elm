@@ -56,35 +56,40 @@ decodeZStringWords words mem =
 
 
 {-| Encode a string into Z-characters for dictionary lookup.
-Returns exactly 6 Z-characters (V3 dictionary format), padded with the
-dictionary pad character.
+Pads to `dictWordZChars` from the version profile (V3: 6, V5: 9).
 -}
-encodeToZChars : String -> List Int
-encodeToZChars str =
+encodeToZChars : Memory -> String -> List Int
+encodeToZChars mem str =
     str
         |> String.toLower
         |> String.toList
         |> List.concatMap charToZCharSequence
-        |> padTo 6 dictionaryPadChar
+        |> padTo (Memory.profile mem).dictWordZChars dictionaryPadChar
 
 
 {-| Pack Z-characters into 2-byte words for dictionary comparison.
-Returns exactly 2 words (V3: 6 Z-chars = 2 words of 3 Z-chars each).
+Returns `dictWordWords` words from the profile (V3: 2, V5: 3).
 The last word has bit 15 set.
 -}
-packZCharsToWords : List Int -> List Int
-packZCharsToWords zchars =
+packZCharsToWords : Memory -> List Int -> List Int
+packZCharsToWords mem zchars =
     let
+        p =
+            Memory.profile mem
+
         padded =
-            padTo 6 dictionaryPadChar zchars
+            padTo p.dictWordZChars dictionaryPadChar zchars
 
-        word1 =
-            packThreeZChars (List.take 3 padded) False
-
-        word2 =
-            packThreeZChars (List.drop 3 padded) True
+        numWords =
+            p.dictWordWords
     in
-    [ word1, word2 ]
+    List.range 0 (numWords - 1)
+        |> List.map
+            (\i ->
+                packThreeZChars
+                    (padded |> List.drop (i * 3) |> List.take 3)
+                    (i == numWords - 1)
+            )
 
 
 packThreeZChars : List Int -> Bool -> Int

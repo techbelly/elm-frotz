@@ -126,6 +126,21 @@ zword z1 z2 z3 isLast =
         |> Bitwise.or z3
 
 
+{-| Minimal V5 memory for encoding tests.
+-}
+makeV5Mem : Memory
+makeV5Mem =
+    List.repeat 512 0
+        |> setAt 0 5
+        |> setAt 14 0x01
+        |> setAt 15 0x00
+        |> List.map Encode.unsignedInt8
+        |> Encode.sequence
+        |> Encode.encode
+        |> Memory.fromBytes
+        |> unwrap
+
+
 unwrap : Result String a -> a
 unwrap result =
     case result of
@@ -491,27 +506,52 @@ zsciiTests =
 
 encodeTests : Test
 encodeTests =
+    let
+        v3mem =
+            makeMemWithZString 0x80 []
+
+        v5mem =
+            makeV5Mem
+    in
     describe "encoding"
         [ test "simple lowercase" <|
             \_ ->
-                Text.encodeToZChars "abc"
+                Text.encodeToZChars v3mem "abc"
                     |> Expect.equal [ 6, 7, 8, 5, 5, 5 ]
-        , test "truncates to 6 zchars" <|
+        , test "truncates to 6 zchars (V3)" <|
             \_ ->
-                Text.encodeToZChars "abcdefghij"
+                Text.encodeToZChars v3mem "abcdefghij"
                     |> Expect.equal [ 6, 7, 8, 9, 10, 11 ]
         , test "pads short strings" <|
             \_ ->
-                Text.encodeToZChars "a"
+                Text.encodeToZChars v3mem "a"
                     |> Expect.equal [ 6, 5, 5, 5, 5, 5 ]
         , test "uppercase is lowered before encoding" <|
             \_ ->
-                Text.encodeToZChars "ABC"
+                Text.encodeToZChars v3mem "ABC"
                     |> Expect.equal [ 6, 7, 8, 5, 5, 5 ]
         , test "empty string is all padding" <|
             \_ ->
-                Text.encodeToZChars ""
+                Text.encodeToZChars v3mem ""
                     |> Expect.equal [ 5, 5, 5, 5, 5, 5 ]
+        , test "V5 pads to 9 zchars" <|
+            \_ ->
+                Text.encodeToZChars v5mem "abc"
+                    |> Expect.equal [ 6, 7, 8, 5, 5, 5, 5, 5, 5 ]
+        , test "V5 truncates to 9 zchars" <|
+            \_ ->
+                Text.encodeToZChars v5mem "abcdefghijklmnop"
+                    |> Expect.equal [ 6, 7, 8, 9, 10, 11, 12, 13, 14 ]
+        , test "V5 packs to 3 words" <|
+            \_ ->
+                Text.packZCharsToWords v5mem (Text.encodeToZChars v5mem "abc")
+                    |> List.length
+                    |> Expect.equal 3
+        , test "V3 packs to 2 words" <|
+            \_ ->
+                Text.packZCharsToWords v3mem (Text.encodeToZChars v3mem "abc")
+                    |> List.length
+                    |> Expect.equal 2
         ]
 
 

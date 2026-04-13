@@ -94,10 +94,10 @@ makeMemWithDict separators words =
                     (\w ->
                         let
                             zchars =
-                                Text.encodeToZChars w
+                                Text.encodeToZChars v3EncodingMem w
 
                             zwords =
-                                Text.packZCharsToWords zchars
+                                Text.packZCharsToWords v3EncodingMem zchars
 
                             w1 =
                                 List.head zwords |> Maybe.withDefault 0
@@ -131,6 +131,21 @@ makeMemWithDict separators words =
                 (List.indexedMap Tuple.pair dictBytes)
     in
     withDict
+        |> List.map Encode.unsignedInt8
+        |> Encode.sequence
+        |> Encode.encode
+        |> Memory.fromBytes
+        |> unwrap
+
+
+{-| Minimal V3 memory used only for encoding dictionary keys during test setup.
+-}
+v3EncodingMem : Memory
+v3EncodingMem =
+    List.repeat 256 0
+        |> setAt 0 3
+        |> setAt 14 0x00
+        |> setAt 15 0x80
         |> List.map Encode.unsignedInt8
         |> Encode.sequence
         |> Encode.encode

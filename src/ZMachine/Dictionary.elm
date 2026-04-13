@@ -9,7 +9,6 @@ and writing the results to the parse buffer.
 
 -}
 
-import Bitwise
 import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Header as Header
 import ZMachine.Text as Text
@@ -55,6 +54,9 @@ tokenize input textBufAddr parseBufAddr mem =
         maxWords =
             Memory.readByte parseBufAddr mem
 
+        textOffset =
+            (Memory.profile mem).textBufferOffset
+
         tokenResults =
             tokens
                 |> List.take maxWords
@@ -62,7 +64,7 @@ tokenize input textBufAddr parseBufAddr mem =
                     (\token ->
                         { dictAddr = lookupWord token.text mem
                         , textLength = token.length
-                        , textPosition = token.position + 1
+                        , textPosition = token.position + textOffset
                         }
                     )
     in
@@ -92,22 +94,22 @@ lookupWord word mem =
             dictAddr + 4 + numSeparators
 
         -- Encode the word to Z-character dictionary form
-        zchars =
-            Text.encodeToZChars word
+        p =
+            Memory.profile mem
 
-        targetWords =
-            Text.packZCharsToWords zchars
+        zchars =
+            Text.encodeToZChars mem word
 
         target =
-            encodeTargetKey targetWords
+            Text.packZCharsToWords mem zchars
     in
     if numEntries >= 0 then
         -- Sorted: binary search
-        binarySearch entriesStart entryLength 0 (numEntries - 1) target mem
+        binarySearch entriesStart entryLength p.dictWordWords 0 (numEntries - 1) target mem
 
     else
         -- Unsorted: linear search
-        linearSearch entriesStart entryLength (abs numEntries) target mem
+        linearSearch entriesStart entryLength p.dictWordWords (abs numEntries) target mem
 
 
 
@@ -117,19 +119,31 @@ lookupWord word mem =
 writeTextBuffer : String -> Int -> Memory -> Memory
 writeTextBuffer text addr mem =
     let
+        p =
+            Memory.profile mem
+
+        offset =
+            p.textBufferOffset
+
         chars =
             String.toList text
 
         memWithChars =
             List.foldl
                 (\( i, ch ) m ->
-                    Memory.writeByte (addr + 1 + i) (Char.toCode ch) m
+                    Memory.writeByte (addr + offset + i) (Char.toCode ch) m
                 )
                 mem
                 (List.indexedMap Tuple.pair chars)
     in
-    -- Null-terminate
-    Memory.writeByte (addr + 1 + List.length chars) 0 memWithChars
+    case p.version of
+        Memory.V3 ->
+            -- Null-terminate
+            Memory.writeByte (addr + offset + List.length chars) 0 memWithChars
+
+        Memory.V5 ->
+            -- Write character count to byte 1
+            Memory.writeByte (addr + 1) (List.length chars) memWithChars
 
 
 
@@ -236,30 +250,14 @@ readSeparators mem =
 -- INTERNAL: Dictionary search
 
 
-encodeTargetKey : List Int -> Int
-encodeTargetKey words =
-    case words of
-        [ w1, w2 ] ->
-            Bitwise.or (Bitwise.shiftLeftBy 16 w1) w2
-
-        _ ->
-            0
+readEntryKey : Int -> Int -> Memory -> List Int
+readEntryKey numWords addr mem =
+    List.range 0 (numWords - 1)
+        |> List.map (\i -> Memory.readWord (addr + i * Memory.wordLength) mem)
 
 
-readEntryKey : Int -> Memory -> Int
-readEntryKey addr mem =
-    let
-        w1 =
-            Memory.readWord addr mem
-
-        w2 =
-            Memory.readWord (addr + Memory.wordLength) mem
-    in
-    Bitwise.or (Bitwise.shiftLeftBy 16 w1) w2
-
-
-binarySearch : Int -> Int -> Int -> Int -> Int -> Memory -> Int
-binarySearch entriesStart entryLength low high target mem =
+binarySearch : Int -> Int -> Int -> Int -> Int -> List Int -> Memory -> Int
+binarySearch entriesStart entryLength numWords low high target mem =
     if low > high then
         0
 
@@ -272,25 +270,25 @@ binarySearch entriesStart entryLength low high target mem =
                 entriesStart + mid * entryLength
 
             midKey =
-                readEntryKey midAddr mem
+                readEntryKey numWords midAddr mem
         in
         if midKey == target then
             midAddr
 
         else if target < midKey then
-            binarySearch entriesStart entryLength low (mid - 1) target mem
+            binarySearch entriesStart entryLength numWords low (mid - 1) target mem
 
         else
-            binarySearch entriesStart entryLength (mid + 1) high target mem
+            binarySearch entriesStart entryLength numWords (mid + 1) high target mem
 
 
-linearSearch : Int -> Int -> Int -> Int -> Memory -> Int
-linearSearch entriesStart entryLength count target mem =
-    linearSearchHelper entriesStart entryLength 0 count target mem
+linearSearch : Int -> Int -> Int -> Int -> List Int -> Memory -> Int
+linearSearch entriesStart entryLength numWords count target mem =
+    linearSearchHelper entriesStart entryLength numWords 0 count target mem
 
 
-linearSearchHelper : Int -> Int -> Int -> Int -> Int -> Memory -> Int
-linearSearchHelper entriesStart entryLength index count target mem =
+linearSearchHelper : Int -> Int -> Int -> Int -> Int -> List Int -> Memory -> Int
+linearSearchHelper entriesStart entryLength numWords index count target mem =
     if index >= count then
         0
 
@@ -300,10 +298,10 @@ linearSearchHelper entriesStart entryLength index count target mem =
                 entriesStart + index * entryLength
 
             key =
-                readEntryKey addr mem
+                readEntryKey numWords addr mem
         in
         if key == target then
             addr
 
         else
-            linearSearchHelper entriesStart entryLength (index + 1) count target mem
+            linearSearchHelper entriesStart entryLength numWords (index + 1) count target mem

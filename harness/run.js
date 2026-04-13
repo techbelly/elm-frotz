@@ -28,9 +28,15 @@ app.ports.requestInput.subscribe((signal) => {
         process.exit(0);
         return;
     }
-    rl.question('> ', (answer) => {
-        app.ports.inputProvided.send(answer);
-    });
+    if (signal === 'CHAR') {
+        rl.question('[key] ', (answer) => {
+            app.ports.inputProvided.send(answer.slice(0, 1) || '\n');
+        });
+    } else {
+        rl.question('> ', (answer) => {
+            app.ports.inputProvided.send(answer);
+        });
+    }
 });
 
 app.ports.continueRunning.subscribe(() => {

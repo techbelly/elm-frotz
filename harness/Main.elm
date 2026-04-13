@@ -83,7 +83,16 @@ update msg model =
         InputReceived text ->
             case ( model.machine, model.waitingForInput ) of
                 ( Just machine, Just req ) ->
-                    handleResult (ZMachine.provideInput text req machine) model
+                    let
+                        input =
+                            case req of
+                                CharInput ->
+                                    String.left 1 text
+
+                                _ ->
+                                    text
+                    in
+                    handleResult (ZMachine.provideInput input req machine) model
 
                 _ ->
                     -- The harness does not yet implement file-backed save/restore;
@@ -121,8 +130,17 @@ handleResult result model =
             )
 
         NeedInput req events m ->
+            let
+                prompt =
+                    case req of
+                        CharInput ->
+                            "CHAR"
+
+                        _ ->
+                            ""
+            in
             ( { model | machine = Just m, waitingForInput = Just req }
-            , Cmd.batch [ output (formatOutput events), requestInput "" ]
+            , Cmd.batch [ output (formatOutput events), requestInput prompt ]
             )
 
         NeedSave _ events m ->

@@ -8,13 +8,14 @@ module ZMachine.ObjectTable exposing
     , propertyDefault, propertyLength
     )
 
-{-| Z-Machine V3 object table access (Standard §12).
+{-| Z-Machine object table access (Standard §12).
 
-The object table consists of:
+Version-dependent layout is read from `Memory.profile`:
 
-  - 31 property default words (62 bytes)
-  - N object entries, each 9 bytes: 4 attribute bytes, parent / sibling /
-    child (1 byte each), and a 2-byte pointer to the property table.
+  - V3: 31 property defaults, 9-byte entries (4 attr bytes, 1-byte
+    parent/sibling/child, 2-byte property pointer).
+  - V5: 63 property defaults, 14-byte entries (6 attr bytes, 2-byte
+    parent/sibling/child, 2-byte property pointer).
 
 Object numbers are 1-indexed; number 0 is the "nothing" sentinel — reads
 return 0 and writes are no-ops, so callers can walk sibling/child chains
@@ -45,74 +46,25 @@ import ZMachine.Text as Text
 
 
 
--- LAYOUT CONSTANTS
-
-
-{-| Number of property default entries (V3).
--}
-numPropertyDefaults : Int
-numPropertyDefaults =
-    31
-
-
-{-| Size of a single object entry in bytes (V3).
--}
-objectEntrySize : Int
-objectEntrySize =
-    9
-
-
-{-| Number of attribute bytes at the start of an object entry (V3).
--}
-numAttributeBytes : Int
-numAttributeBytes =
-    4
-
-
-parentOffset : Int
-parentOffset =
-    numAttributeBytes
-
-
-siblingOffset : Int
-siblingOffset =
-    numAttributeBytes + 1
-
-
-childOffset : Int
-childOffset =
-    numAttributeBytes + 2
-
-
-propertyPointerOffset : Int
-propertyPointerOffset =
-    numAttributeBytes + 3
-
-
-{-| Five low bits of a property size byte hold the property number.
--}
-propertyNumberMask : Int
-propertyNumberMask =
-    0x1F
-
-
-
 -- ENTRIES
 
 
-{-| Byte address of an object's 9-byte entry. The caller should guard
+{-| Byte address of an object entry. The caller should guard
 against `objNum == 0` — this function returns a meaningless address.
 -}
 address : Int -> Memory -> Int
 address objNum mem =
     let
+        p =
+            Memory.profile mem
+
         tableBase =
             Header.objectTableAddress mem
 
         defaultsSize =
-            numPropertyDefaults * Memory.wordLength
+            p.numPropertyDefaults * Memory.wordLength
     in
-    tableBase + defaultsSize + (objNum - 1) * objectEntrySize
+    tableBase + defaultsSize + (objNum - 1) * p.objectEntrySize
 
 
 
@@ -123,42 +75,42 @@ address objNum mem =
 -}
 parent : Int -> Memory -> Int
 parent objNum mem =
-    readRelation parentOffset objNum mem
+    readRelation (Memory.profile mem).parentOffset objNum mem
 
 
 {-| Next sibling object number, or 0 if `objNum` is 0.
 -}
 sibling : Int -> Memory -> Int
 sibling objNum mem =
-    readRelation siblingOffset objNum mem
+    readRelation (Memory.profile mem).siblingOffset objNum mem
 
 
 {-| First child object number, or 0 if `objNum` is 0.
 -}
 child : Int -> Memory -> Int
 child objNum mem =
-    readRelation childOffset objNum mem
+    readRelation (Memory.profile mem).childOffset objNum mem
 
 
 {-| Overwrite the parent pointer. No-op if `objNum` is 0.
 -}
 setParent : Int -> Int -> Memory -> Memory
 setParent objNum value mem =
-    writeRelation parentOffset objNum value mem
+    writeRelation (Memory.profile mem).parentOffset objNum value mem
 
 
 {-| Overwrite the sibling pointer. No-op if `objNum` is 0.
 -}
 setSibling : Int -> Int -> Memory -> Memory
 setSibling objNum value mem =
-    writeRelation siblingOffset objNum value mem
+    writeRelation (Memory.profile mem).siblingOffset objNum value mem
 
 
 {-| Overwrite the child pointer. No-op if `objNum` is 0.
 -}
 setChild : Int -> Int -> Memory -> Memory
 setChild objNum value mem =
-    writeRelation childOffset objNum value mem
+    writeRelation (Memory.profile mem).childOffset objNum value mem
 
 
 readRelation : Int -> Int -> Memory -> Int
@@ -167,7 +119,15 @@ readRelation offset objNum mem =
         0
 
     else
-        Memory.readByte (address objNum mem + offset) mem
+        let
+            addr =
+                address objNum mem + offset
+        in
+        if (Memory.profile mem).objectPointerSize == 1 then
+            Memory.readByte addr mem
+
+        else
+            Memory.readWord addr mem
 
 
 writeRelation : Int -> Int -> Int -> Memory -> Memory
@@ -176,7 +136,15 @@ writeRelation offset objNum value mem =
         mem
 
     else
-        Memory.writeByte (address objNum mem + offset) value mem
+        let
+            addr =
+                address objNum mem + offset
+        in
+        if (Memory.profile mem).objectPointerSize == 1 then
+            Memory.writeByte addr value mem
+
+        else
+            Memory.writeWord addr value mem
 
 
 {-| Detach `objNum` from its current parent, unlinking it from the parent's
@@ -291,7 +259,7 @@ propertyTableAddress objNum mem =
         0
 
     else
-        Memory.readWord (address objNum mem + propertyPointerOffset) mem
+        Memory.readWord (address objNum mem + (Memory.profile mem).propPtrOffset) mem
 
 
 {-| The object's short name — the encoded Z-string stored at the head of
@@ -343,20 +311,16 @@ findProperty objNum propNum mem =
 
 findPropertyAt : Int -> Int -> Memory -> Maybe ( Int, Int )
 findPropertyAt addr propNum mem =
-    let
-        sizeByte =
-            Memory.readByte addr mem
-    in
-    if sizeByte == 0 then
+    if Memory.readByte addr mem == 0 then
         Nothing
 
     else
         let
             decoded =
-                decodeSizeByte sizeByte
+                decodePropertyHeader addr mem
 
             dataAddr =
-                addr + 1
+                addr + decoded.headerSize
         in
         if decoded.num == propNum then
             Just ( dataAddr, decoded.dataLen )
@@ -388,25 +352,21 @@ nextPropertyNumber objNum propNum mem =
 
 propertyNumberAt : Int -> Memory -> Int
 propertyNumberAt addr mem =
-    Bitwise.and (Memory.readByte addr mem) propertyNumberMask
+    Bitwise.and (Memory.readByte addr mem) (Memory.profile mem).propertyNumberMask
 
 
 walkToNextNumber : Int -> Int -> Memory -> Int
 walkToNextNumber addr targetPropNum mem =
-    let
-        sizeByte =
-            Memory.readByte addr mem
-    in
-    if sizeByte == 0 then
+    if Memory.readByte addr mem == 0 then
         0
 
     else
         let
             decoded =
-                decodeSizeByte sizeByte
+                decodePropertyHeader addr mem
 
             nextAddr =
-                addr + 1 + decoded.dataLen
+                addr + decoded.headerSize + decoded.dataLen
         in
         if decoded.num == targetPropNum then
             propertyNumberAt nextAddr mem
@@ -415,14 +375,65 @@ walkToNextNumber addr targetPropNum mem =
             walkToNextNumber nextAddr targetPropNum mem
 
 
-{-| Decode a property size byte into its `num` (property number) and
-`dataLen` (length of the property's data in bytes) fields.
+{-| Decode a property header at `addr` into its property number, data
+length, and the number of header bytes consumed.
+
+V3: single size byte — bits 7-5 encode (dataLen - 1), bits 4-0 the
+property number.
+
+V5: if bit 7 is clear, single byte — bit 6 selects 1-byte (0) or
+2-byte (1) data, bits 5-0 are the property number. If bit 7 is set,
+this is the second byte of a two-byte header — bits 5-0 give the data
+length (0 means 64), and the property number was in the first byte.
+
 -}
-decodeSizeByte : Int -> { num : Int, dataLen : Int }
-decodeSizeByte sizeByte =
-    { num = Bitwise.and sizeByte propertyNumberMask
-    , dataLen = Bitwise.shiftRightZfBy 5 sizeByte + 1
-    }
+decodePropertyHeader : Int -> Memory -> { num : Int, dataLen : Int, headerSize : Int }
+decodePropertyHeader addr mem =
+    let
+        firstByte =
+            Memory.readByte addr mem
+
+        p =
+            Memory.profile mem
+    in
+    case p.version of
+        Memory.V3 ->
+            { num = Bitwise.and firstByte p.propertyNumberMask
+            , dataLen = Bitwise.shiftRightZfBy 5 firstByte + 1
+            , headerSize = 1
+            }
+
+        Memory.V5 ->
+            if Bitwise.and firstByte 0x80 /= 0 then
+                -- Bit 7 set on first byte means two-byte header follows
+                let
+                    secondByte =
+                        Memory.readByte (addr + 1) mem
+
+                    rawLen =
+                        Bitwise.and secondByte 0x3F
+                in
+                { num = Bitwise.and firstByte p.propertyNumberMask
+                , dataLen =
+                    if rawLen == 0 then
+                        64
+
+                    else
+                        rawLen
+                , headerSize = 2
+                }
+
+            else
+                -- Single-byte header: bit 6 selects 1 or 2 byte data
+                { num = Bitwise.and firstByte p.propertyNumberMask
+                , dataLen =
+                    if Bitwise.and firstByte 0x40 /= 0 then
+                        2
+
+                    else
+                        1
+                , headerSize = 1
+                }
 
 
 {-| Default value to use for property `propNum` when the object doesn't
@@ -437,6 +448,12 @@ propertyDefault propNum mem =
 
 {-| Length in bytes of the property whose data address is `dataAddr`.
 Returns 0 if `dataAddr` is 0 (matching `get_prop_len`'s spec).
+
+In V3, the size byte is always at `dataAddr - 1`. In V5, if the byte
+at `dataAddr - 1` has bit 7 set it is the second byte of a two-byte
+header (and contains the length directly); otherwise the single-byte
+header at `dataAddr - 1` encodes the length via bit 6.
+
 -}
 propertyLength : Int -> Memory -> Int
 propertyLength dataAddr mem =
@@ -444,4 +461,29 @@ propertyLength dataAddr mem =
         0
 
     else
-        .dataLen (decodeSizeByte (Memory.readByte (dataAddr - 1) mem))
+        let
+            prevByte =
+                Memory.readByte (dataAddr - 1) mem
+        in
+        case (Memory.profile mem).version of
+            Memory.V3 ->
+                Bitwise.shiftRightZfBy 5 prevByte + 1
+
+            Memory.V5 ->
+                if Bitwise.and prevByte 0x80 /= 0 then
+                    -- Two-byte header: bits 5-0 are the length
+                    let
+                        rawLen =
+                            Bitwise.and prevByte 0x3F
+                    in
+                    if rawLen == 0 then
+                        64
+
+                    else
+                        rawLen
+
+                else if Bitwise.and prevByte 0x40 /= 0 then
+                    2
+
+                else
+                    1

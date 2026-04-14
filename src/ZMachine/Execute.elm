@@ -38,9 +38,11 @@ import ZMachine.Opcode as Opcode
         , Operand(..)
         , variableRefFromByte
         )
+import ZMachine.Player as Player
 import ZMachine.Snapshot as Snapshot
 import ZMachine.State as State
 import ZMachine.StatusLine as StatusLine
+import ZMachine.Window as Window
 import ZMachine.Text as Text
 import ZMachine.Types as Types
     exposing
@@ -889,7 +891,11 @@ executeInsertObj ops machine =
                             |> ObjectTable.setChild dest obj
                    )
     in
-    Continue { machine | memory = mem }
+    Continue
+        { machine
+            | memory = mem
+            , playerTracking = Player.noteInsert obj dest mem machine.playerTracking
+        }
 
 
 executeRemoveObj : List Int -> ZMachine -> Outcome
@@ -1017,10 +1023,21 @@ executePutProp ops machine =
 executePrintObj : List Int -> ZMachine -> Outcome
 executePrintObj ops machine =
     let
+        objNum =
+            operandAt 0 ops
+
         name =
-            ObjectTable.shortName (operandAt 0 ops) machine.memory
+            ObjectTable.shortName objNum machine.memory
+
+        noted =
+            case machine.currentWindow of
+                Types.Upper ->
+                    { machine | upperWindow = Window.notePrintObj objNum machine.upperWindow }
+
+                Types.Lower ->
+                    machine
     in
-    Continue (State.outputText name machine)
+    Continue (State.outputText name noted)
 
 
 

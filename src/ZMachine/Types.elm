@@ -43,6 +43,15 @@ import ZMachine.Snapshot
 import ZMachine.Stack
 
 
+{-| Tracking state for identifying which global variable holds the
+current player object. See `ZMachine.Player` for the algorithm.
+-}
+type alias PlayerTracking =
+    { playerObject : Int
+    , globalCandidates : Dict Int Int
+    }
+
+
 {-| Opaque Z-Machine memory image, re-exported so consumers can annotate
 [`ZMachine`](#ZMachine) fields without a second import.
 -}
@@ -80,6 +89,7 @@ type alias ZMachine =
     , randomState : { seed : Int, count : Int }
     , currentWindow : Window
     , upperWindow : UpperWindow
+    , playerTracking : PlayerTracking
     }
 
 
@@ -94,6 +104,7 @@ type alias UpperWindow =
     , cursorRow : Int
     , cursorCol : Int
     , width : Int
+    , firstPrintedObj : Int
     }
 
 

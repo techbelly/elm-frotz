@@ -186,17 +186,21 @@ formatOutput events =
         |> String.concat
 
 
-formatStatusLine : { a | locationName : String, mode : StatusLineMode } -> String
+formatStatusLine : { a | locationId : Int, locationName : String, mode : StatusLineMode } -> String
 formatStatusLine status =
+    let
+        loc =
+            "loc=" ++ String.fromInt status.locationId ++ " name=\"" ++ status.locationName ++ "\""
+    in
     case status.mode of
         ScoreAndTurns score turns ->
-            status.locationName ++ " | Score: " ++ String.fromInt score ++ " Turns: " ++ String.fromInt turns
+            loc ++ " | Score: " ++ String.fromInt score ++ " Turns: " ++ String.fromInt turns
 
         TimeOfDay hours minutes ->
-            status.locationName ++ " | Time: " ++ String.fromInt hours ++ ":" ++ String.padLeft 2 '0' (String.fromInt minutes)
+            loc ++ " | Time: " ++ String.fromInt hours ++ ":" ++ String.padLeft 2 '0' (String.fromInt minutes)
 
         ScreenRows rows ->
-            String.join " | " rows
+            loc ++ " | " ++ String.join " | " rows
 
 
 errorToString : ZMachineError -> String

@@ -7,6 +7,7 @@ module ZMachine.Window exposing
     , getCursor
     , eraseWindow
     , eraseLine
+    , notePrintObj
     , render
     )
 
@@ -39,6 +40,7 @@ empty width =
     , cursorRow = 1
     , cursorCol = 1
     , width = width
+    , firstPrintedObj = 0
     }
 
 
@@ -84,7 +86,12 @@ Resets the cursor to (1,1) per the V5 spec.
 -}
 split : Int -> UpperWindow -> UpperWindow
 split height uw =
-    { uw | height = height, cursorRow = 1, cursorCol = 1 }
+    { uw
+        | height = height
+        , cursorRow = 1
+        , cursorCol = 1
+        , firstPrintedObj = 0
+    }
 
 
 {-| Set the cursor position (1-based row and column).
@@ -113,6 +120,7 @@ eraseWindow win uw =
                     | rows = Dict.empty
                     , cursorRow = 1
                     , cursorCol = 1
+                    , firstPrintedObj = 0
                 }
         in
         if win == -1 then
@@ -120,6 +128,21 @@ eraseWindow win uw =
 
         else
             cleared
+
+    else
+        uw
+
+
+{-| Record that `print_obj <n>` was executed while the upper window was
+current. Inform-compiled games draw the status bar by printing the
+location object's short name first; capturing that object number lets
+the interpreter identify the current room without tracking the player.
+Subsequent `print_obj` calls within the same draw are ignored.
+-}
+notePrintObj : Int -> UpperWindow -> UpperWindow
+notePrintObj objNum uw =
+    if uw.firstPrintedObj == 0 then
+        { uw | firstPrintedObj = objNum }
 
     else
         uw

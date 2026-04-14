@@ -11,12 +11,45 @@ const storyBytes = fs.readFileSync(storyPath);
 // Create a DataView from the buffer for Elm's Bytes format
 const app = Elm.Main.init();
 
-// Set up readline for interactive input
+// Manual line-buffered reader so we don't crash when stdin closes
+// before the game has finished asking for input.
+const lineQueue = [];
+const waiters = [];
+let stdinClosed = false;
+
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: ''
 });
+
+rl.on('line', (line) => {
+    if (waiters.length > 0) {
+        waiters.shift()(line);
+    } else {
+        lineQueue.push(line);
+    }
+});
+
+rl.on('close', () => {
+    stdinClosed = true;
+    while (waiters.length > 0) {
+        waiters.shift()('');
+    }
+});
+
+function nextLine(prompt, cb) {
+    if (lineQueue.length > 0) {
+        process.stdout.write(prompt);
+        process.stdout.write(lineQueue[0] + '\n');
+        cb(lineQueue.shift());
+    } else if (stdinClosed) {
+        cb('');
+    } else {
+        process.stdout.write(prompt);
+        waiters.push(cb);
+    }
+}
 
 app.ports.output.subscribe((text) => {
     process.stdout.write(text);
@@ -29,11 +62,11 @@ app.ports.requestInput.subscribe((signal) => {
         return;
     }
     if (signal === 'CHAR') {
-        rl.question('[key] ', (answer) => {
+        nextLine('[key] ', (answer) => {
             app.ports.inputProvided.send(answer.slice(0, 1) || '\n');
         });
     } else {
-        rl.question('> ', (answer) => {
+        nextLine('> ', (answer) => {
             app.ports.inputProvided.send(answer);
         });
     }

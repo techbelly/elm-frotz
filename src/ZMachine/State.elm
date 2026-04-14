@@ -32,8 +32,9 @@ import Library.IntExtra exposing (toUnsignedInt16)
 import ZMachine.Opcode exposing (VariableRef(..))
 import ZMachine.Memory as Memory exposing (Memory)
 import ZMachine.Header as Header
+import ZMachine.ObjectTable as ObjectTable
+import ZMachine.Player as Player
 import ZMachine.Stack
-import ZMachine.StatusLine as StatusLine
 import ZMachine.Types exposing (OutputEvent(..), StatusLineMode(..), Window(..), ZMachine)
 import ZMachine.Window as Window
 
@@ -75,6 +76,7 @@ init mem =
     , randomState = { seed = 12345, count = 0 }
     , currentWindow = Lower
     , upperWindow = Window.empty 80
+    , playerTracking = Player.empty
     }
 
 
@@ -96,7 +98,9 @@ readVariable ref machine =
                     ( 0, machine )
 
         Global n ->
-            ( Memory.readWord (globalAddress n machine.memory) machine.memory, machine )
+            ( Memory.readWord (globalAddress n machine.memory) machine.memory
+            , { machine | playerTracking = Player.noteGlobalRead n machine.playerTracking }
+            )
 
 
 {-| Write a value to a variable. Variable 0 = push stack, 1-15 = locals, 16-255 = globals.
@@ -326,11 +330,24 @@ splitWindow height machine =
     { machine | upperWindow = Window.split height machine.upperWindow }
 
 
-{-| Switch to the given window.
+{-| Switch to the given window. Entering the upper window starts a new
+status-bar draw, so the captured "first print_obj" marker is reset.
 -}
 setWindow : Window -> ZMachine -> ZMachine
 setWindow win machine =
-    { machine | currentWindow = win }
+    case win of
+        Upper ->
+            let
+                uw =
+                    machine.upperWindow
+            in
+            { machine
+                | currentWindow = Upper
+                , upperWindow = { uw | firstPrintedObj = 0 }
+            }
+
+        Lower ->
+            { machine | currentWindow = Lower }
 
 
 {-| Set the cursor position in the upper window (1-based row and column).
@@ -372,8 +389,23 @@ flushUpperWindow machine =
         rows =
             Window.render machine.upperWindow
 
-        base =
-            StatusLine.build machine
+        ( locId, locName ) =
+            case Player.currentLocation machine.memory machine.playerTracking of
+                ( 0, _ ) ->
+                    -- Inform fallback: the first `print_obj` during an
+                    -- upper-window draw identifies the current location.
+                    let
+                        obj =
+                            machine.upperWindow.firstPrintedObj
+                    in
+                    if obj == 0 then
+                        ( 0, "" )
+
+                    else
+                        ( obj, ObjectTable.shortName obj machine.memory )
+
+                result ->
+                    result
     in
     case rows of
         [] ->
@@ -382,8 +414,8 @@ flushUpperWindow machine =
         _ ->
             appendOutput
                 (ShowStatusLine
-                    { locationId = base.locationId
-                    , locationName = base.locationName
+                    { locationId = locId
+                    , locationName = locName
                     , mode = ScreenRows rows
                     }
                 )

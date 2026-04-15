@@ -31,6 +31,7 @@ port resume : (() -> msg) -> Sub msg
 type alias Model =
     { machine : Maybe ZMachine
     , waitingFor : Maybe WaitingFor
+    , eventsMode : Bool
     }
 
 
@@ -49,10 +50,20 @@ type Msg
     | Resume
 
 
-main : Program () Model Msg
+{-| Flag: True for NDJSON event output, False for rendered text.
+-}
+type alias Flags =
+    Bool
+
+
+main : Program Flags Model Msg
 main =
     Platform.worker
-        { init = \_ -> ( { machine = Nothing, waitingFor = Nothing }, Cmd.none )
+        { init =
+            \eventsMode ->
+                ( { machine = Nothing, waitingFor = Nothing, eventsMode = eventsMode }
+                , Cmd.none
+                )
         , update = update
         , subscriptions = subscriptions
         }
@@ -83,7 +94,7 @@ update msg model =
                     ( model, errorOccurred ("Failed to load: " ++ err) )
 
                 Ok machine ->
-                    runMachine machine
+                    runMachine machine model
 
         InputReceived text ->
             case ( model.machine, model.waitingFor ) of
@@ -104,38 +115,48 @@ update msg model =
         Resume ->
             case model.machine of
                 Just machine ->
-                    runMachine machine
+                    runMachine machine model
 
                 Nothing ->
                     ( model, Cmd.none )
 
 
-runMachine : ZMachine -> ( Model, Cmd Msg )
-runMachine machine =
+runMachine : ZMachine -> Model -> ( Model, Cmd Msg )
+runMachine machine model =
     let
         result =
             ZMachine.runSteps 100000 machine
     in
-    handleResult result { machine = Just machine, waitingFor = Nothing }
+    handleResult result { model | machine = Just machine, waitingFor = Nothing }
 
 
 handleResult : StepResult -> Model -> ( Model, Cmd Msg )
 handleResult result model =
+    let
+        em =
+            model.eventsMode
+    in
     case result of
         Continue events m ->
             -- Step budget exhausted — yield to JS event loop, then resume
             ( { model | machine = Just m }
-            , Cmd.batch [ output (formatOutput events), continueRunning () ]
+            , Cmd.batch [ output (formatOutput em events), continueRunning () ]
             )
 
         NeedInput info events m ->
             ( { model | machine = Just m, waitingFor = Just (WaitingForLine info) }
-            , Cmd.batch [ output (formatOutput events), requestInput "" ]
+            , Cmd.batch
+                [ output (formatOutput em events ++ marker em (needInputJson info))
+                , requestInput ""
+                ]
             )
 
         NeedChar events m ->
             ( { model | machine = Just m, waitingFor = Just WaitingForChar }
-            , Cmd.batch [ output (formatOutput events), requestInput "CHAR" ]
+            , Cmd.batch
+                [ output (formatOutput em events ++ marker em needCharJson)
+                , requestInput "CHAR"
+                ]
             )
 
         NeedSave _ events m ->
@@ -145,45 +166,73 @@ handleResult result model =
                 ( next, cmd ) =
                     handleResult (ZMachine.provideSaveResult False m) model
             in
-            ( next, Cmd.batch [ output (formatOutput events), cmd ] )
+            ( next, Cmd.batch [ output (formatOutput em events), cmd ] )
 
         NeedRestore events m ->
             let
                 ( next, cmd ) =
                     handleResult (ZMachine.provideRestoreResult Nothing m) model
             in
-            ( next, Cmd.batch [ output (formatOutput events), cmd ] )
+            ( next, Cmd.batch [ output (formatOutput em events), cmd ] )
 
         Halted events m ->
             ( { model | machine = Just m }
-            , Cmd.batch [ output (formatOutput events ++ "\n[Machine halted]"), requestInput "HALT" ]
+            , Cmd.batch
+                [ output
+                    (formatOutput em events
+                        ++ (if em then
+                                jsonLine haltedJson
+
+                            else
+                                "\n[Machine halted]"
+                           )
+                    )
+                , requestInput "HALT"
+                ]
             )
 
         Error err events m ->
-            ( { model | machine = Just m }
-            , errorOccurred (formatOutput events ++ "\n[Error: " ++ errorToString err ++ "]")
-            )
+            let
+                msg =
+                    errorToString err
+            in
+            if em then
+                ( { model | machine = Just m }
+                , Cmd.batch
+                    [ output (formatOutput em events ++ jsonLine (errorJson msg))
+                    , errorOccurred ""
+                    ]
+                )
+
+            else
+                ( { model | machine = Just m }
+                , errorOccurred (formatOutput em events ++ "\n[Error: " ++ msg ++ "]")
+                )
 
 
-formatOutput : List OutputEvent -> String
-formatOutput events =
-    events
-        |> List.filterMap
-            (\event ->
-                case event of
-                    PrintText s ->
-                        Just s
+formatOutput : Bool -> List OutputEvent -> String
+formatOutput eventsMode events =
+    if eventsMode then
+        events |> List.map (eventToJson >> jsonLine) |> String.concat
 
-                    PrintObject s ->
-                        Just s
+    else
+        events
+            |> List.filterMap
+                (\event ->
+                    case event of
+                        PrintText s ->
+                            Just s
 
-                    ShowStatusLine status ->
-                        Just ("[Status: " ++ formatStatusLine status ++ "]\n")
+                        PrintObject s ->
+                            Just s
 
-                    _ ->
-                        Nothing
-            )
-        |> String.concat
+                        ShowStatusLine status ->
+                            Just ("[Status: " ++ formatStatusLine status ++ "]\n")
+
+                        _ ->
+                            Nothing
+                )
+            |> String.concat
 
 
 formatStatusLine : { a | locationId : Int, locationName : String, mode : StatusLineMode } -> String
@@ -217,3 +266,178 @@ errorToString err =
 
         InvalidVariable n ->
             "Invalid variable: " ++ String.fromInt n
+
+
+
+-- NDJSON EVENT SERIALISATION -------------------------------------------------
+
+
+marker : Bool -> String -> String
+marker eventsMode json =
+    if eventsMode then
+        jsonLine json
+
+    else
+        ""
+
+
+jsonLine : String -> String
+jsonLine s =
+    s ++ "\n"
+
+
+eventToJson : OutputEvent -> String
+eventToJson event =
+    case event of
+        PrintText s ->
+            jsonObj [ ( "event", jsonStr "print_text" ), ( "text", jsonStr s ) ]
+
+        PrintObject s ->
+            jsonObj [ ( "event", jsonStr "print_object" ), ( "text", jsonStr s ) ]
+
+        ShowStatusLine status ->
+            jsonObj
+                [ ( "event", jsonStr "status_line" )
+                , ( "locationId", jsonInt status.locationId )
+                , ( "locationName", jsonStr status.locationName )
+                , ( "mode", modeToJson status.mode )
+                ]
+
+        SetBufferMode b ->
+            jsonObj [ ( "event", jsonStr "set_buffer_mode" ), ( "enabled", jsonBool b ) ]
+
+        SetTextStyle n ->
+            jsonObj [ ( "event", jsonStr "set_text_style" ), ( "style", jsonInt n ) ]
+
+        SetColour fg bg ->
+            jsonObj [ ( "event", jsonStr "set_colour" ), ( "fg", jsonInt fg ), ( "bg", jsonInt bg ) ]
+
+        PlaySound n ->
+            jsonObj [ ( "event", jsonStr "play_sound" ), ( "id", jsonInt n ) ]
+
+
+modeToJson : StatusLineMode -> String
+modeToJson mode =
+    case mode of
+        ScoreAndTurns score turns ->
+            jsonObj
+                [ ( "mode", jsonStr "score_and_turns" )
+                , ( "score", jsonInt score )
+                , ( "turns", jsonInt turns )
+                ]
+
+        TimeOfDay hours minutes ->
+            jsonObj
+                [ ( "mode", jsonStr "time_of_day" )
+                , ( "hours", jsonInt hours )
+                , ( "minutes", jsonInt minutes )
+                ]
+
+        ScreenRows rows ->
+            jsonObj
+                [ ( "mode", jsonStr "screen_rows" )
+                , ( "rows", jsonArray (List.map jsonStr rows) )
+                ]
+
+
+needInputJson : LineInputInfo -> String
+needInputJson info =
+    jsonObj
+        [ ( "event", jsonStr "need_input" )
+        , ( "maxLength", jsonInt info.maxLength )
+        ]
+
+
+needCharJson : String
+needCharJson =
+    jsonObj [ ( "event", jsonStr "need_char" ) ]
+
+
+haltedJson : String
+haltedJson =
+    jsonObj [ ( "event", jsonStr "halted" ) ]
+
+
+errorJson : String -> String
+errorJson msg =
+    jsonObj [ ( "event", jsonStr "error" ), ( "message", jsonStr msg ) ]
+
+
+
+-- MINIMAL JSON PRIMITIVES ----------------------------------------------------
+
+
+jsonStr : String -> String
+jsonStr s =
+    "\"" ++ String.foldl (\c acc -> acc ++ escapeChar c) "" s ++ "\""
+
+
+escapeChar : Char -> String
+escapeChar c =
+    case c of
+        '"' ->
+            "\\\""
+
+        '\\' ->
+            "\\\\"
+
+        '\n' ->
+            "\\n"
+
+        '\u{000D}' ->
+            "\\r"
+
+        '\t' ->
+            "\\t"
+
+        _ ->
+            let
+                code =
+                    Char.toCode c
+            in
+            if code < 0x20 then
+                "\\u" ++ String.padLeft 4 '0' (toHex4 code)
+
+            else
+                String.fromChar c
+
+
+toHex4 : Int -> String
+toHex4 n =
+    hexDigit ((n // 4096) |> modBy 16)
+        ++ hexDigit ((n // 256) |> modBy 16)
+        ++ hexDigit ((n // 16) |> modBy 16)
+        ++ hexDigit (modBy 16 n)
+
+
+hexDigit : Int -> String
+hexDigit d =
+    if d < 10 then
+        String.fromChar (Char.fromCode (Char.toCode '0' + d))
+
+    else
+        String.fromChar (Char.fromCode (Char.toCode 'a' + (d - 10)))
+
+
+jsonObj : List ( String, String ) -> String
+jsonObj pairs =
+    "{" ++ String.join "," (List.map (\( k, v ) -> jsonStr k ++ ":" ++ v) pairs) ++ "}"
+
+
+jsonInt : Int -> String
+jsonInt =
+    String.fromInt
+
+
+jsonBool : Bool -> String
+jsonBool b =
+    if b then
+        "true"
+
+    else
+        "false"
+
+
+jsonArray : List String -> String
+jsonArray items =
+    "[" ++ String.join "," items ++ "]"

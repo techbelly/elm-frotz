@@ -1,27 +1,35 @@
+// Events harness: reads commands from stdin, writes one NDJSON event per
+// line to stdout. Use with a ready-built harness/elm.js:
+//
+//     npm run build-harness
+//     node harness/events.js testing/infocom/hhgg-r60-s861028.z3
+//
+// Each stdout line is a JSON object with an "event" field; see
+// harness/Main.elm for the schema. Errors go to stderr; exit code 1 on
+// runtime error, 0 on clean halt.
+
 const fs = require('fs');
 const readline = require('readline');
 
-// Load compiled Elm
 const { Elm } = require('./elm.js');
 
-// Read the story file
-const storyPath = process.argv[2] || 'testing/Zork1.z3';
+const storyPath = process.argv[2];
+if (!storyPath) {
+    console.error('Usage: node harness/events.js <story-file>');
+    process.exit(2);
+}
 const storyBytes = fs.readFileSync(storyPath);
 
-// Create a DataView from the buffer for Elm's Bytes format
-const app = Elm.Main.init({ flags: false });
+const app = Elm.Main.init({ flags: true });
 
-// Manual line-buffered reader so we don't crash when stdin closes
-// before the game has finished asking for input.
+// Line-buffered stdin. When Elm asks for input, we hand it the next line.
+// If stdin closes before the game is satisfied we feed empty strings so
+// the machine exits cleanly rather than hanging.
 const lineQueue = [];
 const waiters = [];
 let stdinClosed = false;
 
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: ''
-});
+const rl = readline.createInterface({ input: process.stdin });
 
 rl.on('line', (line) => {
     if (waiters.length > 0) {
@@ -38,20 +46,19 @@ rl.on('close', () => {
     }
 });
 
-function nextLine(prompt, cb) {
+function nextLine(cb) {
     if (lineQueue.length > 0) {
-        process.stdout.write(prompt);
-        process.stdout.write(lineQueue[0] + '\n');
         cb(lineQueue.shift());
     } else if (stdinClosed) {
         cb('');
     } else {
-        process.stdout.write(prompt);
         waiters.push(cb);
     }
 }
 
 app.ports.output.subscribe((text) => {
+    // `text` is already NDJSON (zero or more complete lines, each ending in
+    // \n). Forward verbatim.
     process.stdout.write(text);
 });
 
@@ -62,11 +69,11 @@ app.ports.requestInput.subscribe((signal) => {
         return;
     }
     if (signal === 'CHAR') {
-        nextLine('[key] ', (answer) => {
+        nextLine((answer) => {
             app.ports.inputProvided.send(answer.slice(0, 1) || '\n');
         });
     } else {
-        nextLine('> ', (answer) => {
+        nextLine((answer) => {
             app.ports.inputProvided.send(answer);
         });
     }
@@ -77,10 +84,13 @@ app.ports.continueRunning.subscribe(() => {
 });
 
 app.ports.errorOccurred.subscribe((err) => {
-    console.error('\n' + err);
+    // In events mode the error event was already emitted to stdout; `err`
+    // is empty. In text mode it would be a human-readable message.
+    if (err) {
+        process.stderr.write(err + '\n');
+    }
     rl.close();
     process.exit(1);
 });
 
-// Send the story file bytes to Elm as a list of ints
 app.ports.storyLoaded.send(Array.from(storyBytes));

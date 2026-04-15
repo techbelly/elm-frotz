@@ -4,6 +4,7 @@ module ZMachine.State exposing
     , eraseWindow
     , init
     , outputText
+    , outputObjectName
     , outputNewLine
     , peekStack
     , pokeStack
@@ -50,7 +51,7 @@ init mem =
         -- Set interpreter metadata in header
         baseMem =
             mem
-                |> Header.setInterpreterInfo 6 (Char.toCode 'A')
+                |> Header.setInterpreterInfo 3 (Char.toCode 'A')
                 |> Header.setScreenSize 25 80
                 |> Header.setStandardRevision 1 1
 
@@ -199,10 +200,21 @@ Events are stored newest-first so that appending is O(1); call
 [`ZMachine.Run.getOutput`](ZMachine-Run#getOutput) to retrieve them in
 chronological order.
 
+Consecutive `PrintText` events are coalesced into a single event — a
+rendered paragraph typically reaches the host as one string rather
+than dozens of per-opcode fragments. `PrintObject` is never merged
+with `PrintText`, so clients keep the split between narrative text
+and object short names.
+
 -}
 appendOutput : OutputEvent -> ZMachine -> ZMachine
 appendOutput event machine =
-    { machine | output = event :: machine.output }
+    case ( event, machine.output ) of
+        ( PrintText new, (PrintText prev) :: rest ) ->
+            { machine | output = PrintText (prev ++ new) :: rest }
+
+        _ ->
+            { machine | output = event :: machine.output }
 
 
 
@@ -280,6 +292,24 @@ outputText str machine =
                     { machine | upperWindow = Window.printText str machine.upperWindow }
 
 
+{-| Output a string that the game identified as an object's short name
+(via `print_obj` or `print_addr`). Routes identically to
+[`outputText`](#outputText) — into the stream-3 memory table or the
+upper-window grid when those are active — except that, when the text
+reaches the lower window, it is emitted as a
+[`PrintObject`](ZMachine-Types#OutputEvent) event so clients can
+distinguish object names from ordinary text output.
+-}
+outputObjectName : String -> ZMachine -> ZMachine
+outputObjectName str machine =
+    case ( machine.stream3Stack, machine.currentWindow ) of
+        ( [], Lower ) ->
+            appendOutput (PrintObject str) machine
+
+        _ ->
+            outputText str machine
+
+
 {-| Output a newline, routing to stream 3, upper window, or lower window.
 -}
 outputNewLine : ZMachine -> ZMachine
@@ -299,7 +329,7 @@ outputNewLine machine =
         [] ->
             case machine.currentWindow of
                 Lower ->
-                    appendOutput NewLine machine
+                    appendOutput (PrintText "\n") machine
 
                 Upper ->
                     { machine | upperWindow = Window.newLine machine.upperWindow }

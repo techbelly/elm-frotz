@@ -57,7 +57,6 @@ events
         (\event ->
             case event of
                 PrintText s -> s
-                NewLine -> "\n"
                 ShowStatusLine status -> status.locationName
                 _ -> ""
         )

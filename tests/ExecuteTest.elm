@@ -133,8 +133,8 @@ getOutputText zm =
                     PrintText s ->
                         Just s
 
-                    NewLine ->
-                        Just "\n"
+                    PrintObject s ->
+                        Just s
 
                     _ ->
                         Nothing

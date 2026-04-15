@@ -174,8 +174,8 @@ formatOutput events =
                     PrintText s ->
                         Just s
 
-                    NewLine ->
-                        Just "\n"
+                    PrintObject s ->
+                        Just s
 
                     ShowStatusLine status ->
                         Just ("[Status: " ++ formatStatusLine status ++ "]\n")

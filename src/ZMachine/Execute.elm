@@ -318,7 +318,7 @@ execute instr nextPC ops machine =
                 ( str, _ ) =
                     Text.decodeZString arg0 m.memory
             in
-            Continue (State.outputText str m)
+            Continue (State.outputObjectName str m)
 
         Op1 CallS1 ->
             executeCall instr arg0 [] m
@@ -1037,7 +1037,7 @@ executePrintObj ops machine =
                 Types.Lower ->
                     machine
     in
-    Continue (State.outputText name noted)
+    Continue (State.outputObjectName name noted)
 
 
 

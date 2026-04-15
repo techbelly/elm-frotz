@@ -169,8 +169,14 @@ type alias LineInputInfo =
 
 {-| Structured output events for the host to render.
 
-  - `PrintText` — display a string.
-  - `NewLine` — insert a line break.
+  - `PrintText` — display a string. Line breaks are embedded as `\n`
+    in the string; consecutive prints are coalesced into a single
+    event, so a rendered paragraph typically arrives as one
+    `PrintText`.
+  - `PrintObject` — display a string that the game identified as an
+    object's short name (via `print_obj` or `print_addr`). Rendered
+    identically to `PrintText`; split out so clients can learn the
+    names of the objects the game refers to.
   - `ShowStatusLine` — update the status bar with a [`StatusLine`](#StatusLine).
   - `SetBufferMode` — enable or disable word-wrap buffering.
   - `SetTextStyle` — change text style (bold, italic, etc.).
@@ -180,7 +186,7 @@ type alias LineInputInfo =
 -}
 type OutputEvent
     = PrintText String
-    | NewLine
+    | PrintObject String
     | ShowStatusLine StatusLine
     | SetBufferMode Bool
     | SetTextStyle Int

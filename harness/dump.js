@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { Elm } = require('./dump-elm.js');
+const { Elm } = require('./dist/dump-elm.js');
 
 const storyPath = process.argv[2];
 const commandString = process.argv[3] || '';

@@ -50,7 +50,7 @@ const ROOT = path.resolve(__dirname, '..');
 // Silence it so the bench output stays clean.
 const _origWarn = console.warn;
 console.warn = () => {};
-const { Elm } = require('./elm.js');
+const { Elm } = require('./dist/elm.js');
 console.warn = _origWarn;
 
 const DEFAULT_WORKLOADS = [

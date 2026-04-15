@@ -2,7 +2,7 @@ const fs = require('fs');
 const readline = require('readline');
 
 // Load compiled Elm
-const { Elm } = require('./elm.js');
+const { Elm } = require('./dist/elm.js');
 
 // Read the story file
 const storyPath = process.argv[2] || 'testing/Zork1.z3';

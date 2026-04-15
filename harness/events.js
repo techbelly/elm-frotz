@@ -1,5 +1,5 @@
 // Events harness: reads commands from stdin, writes one NDJSON event per
-// line to stdout. Use with a ready-built harness/elm.js:
+// line to stdout. Use with a ready-built harness/dist/elm.js:
 //
 //     npm run build-harness
 //     node harness/events.js testing/infocom/hhgg-r60-s861028.z3
@@ -11,7 +11,7 @@
 const fs = require('fs');
 const readline = require('readline');
 
-const { Elm } = require('./elm.js');
+const { Elm } = require('./dist/elm.js');
 
 const storyPath = process.argv[2];
 if (!storyPath) {

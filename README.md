@@ -69,7 +69,7 @@ The `harness/` directory contains a Node.js runner for trying real `.z3` files i
 
 ```bash
 npm run build            # type-check the library
-npm run build-harness    # compile harness/Main.elm -> harness/elm.js
+npm run build-harness    # compile harness/Main.elm -> harness/dist/elm.js
 npm run run-harness -- testing/Zork1.z3   # play!
 ```
 

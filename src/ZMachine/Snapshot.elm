@@ -28,9 +28,10 @@ There are two ways to produce one:
     executes the `save` opcode — tagged `ResumeByBranchTrue`, meaning
     that on restore the save instruction's branch-on-success is taken.
 
-Clients that want a standard format should use
-[`ZMachine.Quetzal`](ZMachine-Quetzal) for `ResumeByBranchTrue`
-snapshots and [`encode`](#encode) for autosaves. Clients building
+For simple round-tripping, serialize with [`encode`](#encode) and
+reload with [`decode`](#decode) — this built-in codec covers both
+resume kinds but is not cross-interpreter portable. A Quetzal codec
+for interop with other interpreters is planned. Clients building
 custom schemes (transcript + notes, etc.) can use the projection
 functions and reconstruct a `Snapshot` via [`fromParts`](#fromParts).
 
@@ -271,8 +272,7 @@ fromParts parts =
 --
 -- Purpose: a simple self-describing serialization for clients that want
 -- to persist snapshots (especially autosaves) without writing their own
--- byte code. Not cross-interpreter portable — use ZMachine.Quetzal for
--- that. Layout:
+-- byte code. Not cross-interpreter portable. Layout:
 --
 --   magic         4 bytes   "ELZS"
 --   version       1 byte    format version (= 1)
@@ -318,8 +318,8 @@ rather than storing the full image. This typically reduces the dynamic
 memory payload from ~16 KB to a few hundred bytes.
 
 Useful for storing autosaves in `localStorage`, a file, etc. The output
-is not portable between different Z-Machine interpreters — use
-[`ZMachine.Quetzal.encode`](ZMachine-Quetzal#encode) for interop.
+is not portable between different Z-Machine interpreters; a Quetzal
+codec for interop is planned.
 
 -}
 encode : Memory -> Snapshot -> Bytes

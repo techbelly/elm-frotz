@@ -16,13 +16,18 @@ module ZMachine exposing
     , provideRestoreResult
     , snapshot
     , restoreSnapshot
+    , storyRelease
+    , storySerial
+    , storyChecksum
     )
 
-{-| A pure Elm Z-Machine version 3 interpreter for interactive fiction.
+{-| A pure Elm Z-Machine interpreter for interactive fiction.
+Supports version 3 story files fully and version 5 partially — see
+the package README for the current v5 coverage.
 
 This module is the main entry point for the library. All functions needed
-to load and run a `.z3` story file are here. For pattern matching on
-result types, also import the constructors from
+to load and run a `.z3` or `.z5` story file are here. For pattern
+matching on result types, also import the constructors from
 [`ZMachine.Types`](ZMachine-Types):
 
     import ZMachine exposing (load, runSteps, provideInput)
@@ -51,14 +56,20 @@ host never needs to inspect the machine's output buffer directly.
 # Save and restore
 
 See [`ZMachine.Snapshot`](ZMachine-Snapshot) for building custom save
-schemes and [`ZMachine.Quetzal`](ZMachine-Quetzal) for the standard
-portable format.
+schemes. A standard portable Quetzal codec is planned but not yet
+shipped in this release.
 
 @docs snapshot, restoreSnapshot, provideSaveResult, provideRestoreResult
+
+
+# Story identity
+
+@docs storyRelease, storySerial, storyChecksum
 
 -}
 
 import Bytes exposing (Bytes)
+import ZMachine.Header as Header
 import ZMachine.Memory as Memory
 import ZMachine.Run as Run
 import ZMachine.Snapshot as Snapshot
@@ -216,11 +227,10 @@ autosaves or quick-save UIs. The resulting snapshot is tagged
 `ResumeAt`, meaning on restore execution picks up at the next
 instruction.
 
-For the standard portable save-file format, serialize with
-[`ZMachine.Snapshot.encode`](ZMachine-Snapshot#encode) (native) — or
-note that `ZMachine.Quetzal.encode` rejects `ResumeAt` snapshots
-because Quetzal has no way to represent resuming at an arbitrary
-instruction boundary.
+To persist a snapshot, serialize it with
+[`ZMachine.Snapshot.encode`](ZMachine-Snapshot#encode). The built-in
+codec is a native format that round-trips cleanly but isn't
+cross-interpreter portable; a Quetzal codec for interop is planned.
 
 -}
 snapshot : ZMachine -> Snapshot
@@ -263,7 +273,7 @@ opcode's branch is evaluated against the result.
 
     case ZMachine.runSteps 10000 machine of
         NeedSave snap m ->
-            writeToFile (ZMachine.Quetzal.encode snap)
+            writeToFile (ZMachine.Snapshot.encode snap)
                 |> Task.map (\_ -> ZMachine.provideSaveResult True m)
 
 -}
@@ -281,3 +291,32 @@ snapshots are treated as failures.
 provideRestoreResult : Maybe Snapshot -> ZMachine -> StepResult
 provideRestoreResult =
     Run.provideRestoreResult
+
+
+{-| The story file's release number (header word 0x02).
+
+Combined with [`storySerial`](#storySerial) and [`storyChecksum`](#storyChecksum)
+this uniquely identifies the story file edition — useful for tagging
+snapshots so a host can reject loading a save against the wrong story.
+
+-}
+storyRelease : ZMachine -> Int
+storyRelease machine =
+    Header.releaseNumber machine.memory
+
+
+{-| The story file's serial number — six ASCII bytes at header 0x12.
+Infocom convention is a `YYMMDD` build date.
+-}
+storySerial : ZMachine -> String
+storySerial machine =
+    Header.serialNumber machine.memory
+
+
+{-| The story file's checksum (header word 0x1C). Sum of all bytes
+from 0x40 onward, mod 65536. Returns 0 for early V3 files that predate
+the checksum field.
+-}
+storyChecksum : ZMachine -> Int
+storyChecksum machine =
+    Header.checksum machine.memory

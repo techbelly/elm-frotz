@@ -22,7 +22,7 @@ Import this module to pattern match on result types:
 
 # Machine State
 
-@docs ZMachine, Memory, CallFrame
+@docs ZMachine, Memory, CallFrame, Snapshot
 
 
 # Step Results
@@ -32,7 +32,7 @@ Import this module to pattern match on result types:
 
 # Output
 
-@docs OutputEvent, StatusLine, Window
+@docs OutputEvent, StatusLine, StatusLineMode, Window, UpperWindow
 
 -}
 

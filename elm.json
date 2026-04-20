@@ -1,7 +1,7 @@
 {
     "type": "package",
-    "name": "beng/elm-frotz",
-    "summary": "Z-Machine version 3 interpreter for interactive fiction",
+    "name": "techbelly/elm-zmachine",
+    "summary": "Z-Machine v3 and v5 interpreter for Infocom-style interactive fiction",
     "license": "MIT",
     "version": "1.0.0",
     "exposed-modules": [
